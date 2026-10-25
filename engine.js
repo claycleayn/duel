@@ -127,6 +127,7 @@
 
     for (let from = 0; from < playerCount; from += 1) {
       const pick = picks[from];
+      if (!pick) continue;
       const def = defs[pick.action];
       if (!def) throw new Error(`Unknown action: ${pick.action}`);
 

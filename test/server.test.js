@@ -264,3 +264,52 @@ test('room token gates page and api', async (t) => {
   assert.equal(allowed.status, 403);
   assert.equal(allowed.json.error, 'not seated');
 });
+
+test('multiplayer: three seats, targets, stacking, dead player excluded', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const h = await sse(srv.port, 'token=h&seat=0&players=3&rules=minimal');
+  const p2 = await sse(srv.port, 'token=p2&seat=1');
+  const p3 = await sse(srv.port, 'token=p3&seat=2');
+  clients.push(h, p2, p3);
+
+  const hostState = await waitFor(h, (m) => m.playerCount === 3 && m.connected[0] && m.connected[1] && m.connected[2]);
+  assert.equal(hostState.you, 0);
+  assert.equal(hostState.ruleset, 'minimal');
+  await waitFor(p2, (m) => m.you === 1 && m.playerCount === 3);
+  await waitFor(p3, (m) => m.you === 2 && m.playerCount === 3);
+
+  await pick(srv.port, 'h', 'charge');
+  await pick(srv.port, 'p2', 'charge');
+  await pick(srv.port, 'p3', 'charge');
+  const reveal1 = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(reveal1.en, [1, 1, 1]);
+
+  const round2 = await waitFor(h, (m) => m.phase === 'pick' && m.round === 2);
+  assert.equal(round2.playerCount, 3);
+
+  await pick(srv.port, 'h', 'attack', 1);
+  await pick(srv.port, 'p3', 'attack', 1);
+  await pick(srv.port, 'p2', 'defend');
+  const reveal2 = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.deepEqual(reveal2.hp, [1, 0, 1]);
+  assert.equal(reveal2.winner, null);
+  assert.deepEqual(reveal2.reveal.picks.map((p) => p && p.target), [1, 0, 1]);
+
+  const round3 = await waitFor(h, (m) => m.phase === 'pick' && m.round === 3);
+  assert.equal(round3.hp[1], 0);
+  assert.equal(round3.locked[1], false);
+  assert.equal(round3.winner, null);
+
+  const dead = await waitFor(p2, (m) => m.round === 2 && m.phase === 'reveal');
+  assert.equal(dead.hp[1], 0);
+  const deadPick = await request(srv.port, '/pick', 'POST', { token: 'p2', action: 'charge' });
+  assert.equal(deadPick.status, 409);
+  assert.equal(deadPick.json.error, 'dead');
+});
