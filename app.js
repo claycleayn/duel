@@ -25,6 +25,7 @@
   const view = {
     online: false,
     you: null,
+    mode: 'pvp',
     cfg: { ...DEFAULTS },
     hp: [1, 1],
     en: [0, 0],
@@ -41,6 +42,7 @@
   const params = new URLSearchParams(window.location.search);
   const preferredSeat = params.get('seat') === '0' ? 0 : params.get('seat') === '1' ? 1 : null;
   const room = params.get('room') || '';
+  const cpuParam = params.get('cpu');
   const FILE_MODE = window.location.protocol === 'file:';
   let token = '';
 
@@ -149,6 +151,8 @@
 
     $('you0').hidden = view.you !== 0;
     $('you1').hidden = view.you !== 1;
+    $('name0').textContent = '玩家 1';
+    $('name1').textContent = view.mode === 'cpu' ? '电脑' : '玩家 2';
   }
 
   function renderCards() {
@@ -372,8 +376,15 @@
       const winner = view.winner;
       card.classList.add(winner === 0 ? 'p1' : 'p2');
       $('overKicker').textContent = 'Winner';
-      $('overTitle').textContent = `玩家 ${winner + 1} 获胜`;
-      $('overSub').textContent = `第 ${view.round} 回合 · 玩家 ${2 - winner} 倒下`;
+      if (view.mode === 'cpu') {
+        const humanWin = view.you === 0 ? '你获胜' : '玩家 1 获胜';
+        const humanLose = view.you === 0 ? '你倒下' : '玩家 1 倒下';
+        $('overTitle').textContent = winner === 0 ? humanWin : '电脑获胜';
+        $('overSub').textContent = `第 ${view.round} 回合 · ${winner === 0 ? '电脑倒下' : humanLose}`;
+      } else {
+        $('overTitle').textContent = `玩家 ${winner + 1} 获胜`;
+        $('overSub').textContent = `第 ${view.round} 回合 · 玩家 ${2 - winner} 倒下`;
+      }
     }
 
     $('overlay').hidden = false;
@@ -431,6 +442,7 @@
   function handleState(msg) {
     view.online = true;
     view.you = msg.you;
+    view.mode = msg.mode || 'pvp';
     view.connected = msg.connected;
     view.locked = msg.locked;
     view.yourPick = msg.yourPick;
@@ -545,7 +557,8 @@
   renderAll();
 
   if (!FILE_MODE) {
-    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
+    const cpuQuery = cpuParam === null ? '' : `&cpu=${encodeURIComponent(cpuParam)}`;
+    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
     const source = new EventSource(eventsUrl);
 
     source.onopen = () => {

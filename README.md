@@ -9,12 +9,20 @@ node server.js
 
 终端会打印本机和局域网的地址。打开两个页面:
 
-- 电脑两个标签页:`http://localhost:3000/?seat=0` 和 `http://localhost:3000/?seat=1`
-- 手机:把 `localhost` 换成启动时打印的局域网 IP(WireGuard 下通常是 `10.77.0.2`),`?seat=0` / `?seat=1` 各开一个
+- 电脑两个标签页:`http://localhost:3000/?seat=0&cpu=0` 和 `http://localhost:3000/?seat=1&cpu=0`
+- 手机:把 `localhost` 换成启动时打印的局域网 IP(WireGuard 下通常是 `10.77.0.2`),`?seat=0&cpu=0` / `?seat=1&cpu=0` 各开一个
 
 服务器持有权威状态,双方选完后同时结算。第三个页面会自动成为观众。端口被占用时用 `PORT=3001 node server.js`。
 
 手机连不上时,确认手机能访问电脑的地址,并且防火墙放行对应端口。
+
+## 人机对战
+
+把 `cpu=0` 换成 `cpu=1`:
+
+`http://localhost:3000/?seat=0&cpu=1`
+
+电脑占 P2,每回合自动选招;你仍然只看到它的“已锁定”,结算时才亮牌。打开 `cpu=0` 的链接会切回双人,切换模式会重开当前局。
 
 ## 本地热座
 
@@ -30,6 +38,7 @@ node server.js
 
 - `index.html` / `app.js` / `style.css` — 双屏客户端
 - `engine.js` — 共享结算引擎(浏览器与 Node 共用)
+- `bot.js` — CPU 对手策略
 - `server.js` — HTTP + SSE 同步服务,无第三方依赖
 - `hotseat.html` — 旧版单文件热座
 
@@ -39,4 +48,4 @@ node server.js
 ACCESS_TOKEN=<随机串> PORT=34871 node server.js
 ```
 
-链接形如 `http://<公网IP>:34871/?room=<随机串>&seat=0`（`seat=1` 给另一台）。建议用 systemd user 服务常驻，并在云安全组和主机防火墙放行该端口。不带 `room` 的页面和 API 请求会返回 404。
+链接形如 `http://<公网IP>:34871/?room=<随机串>&seat=0&cpu=0`（`seat=1` 给另一台）。人机对战把 `cpu=0` 换成 `cpu=1`。建议用 systemd user 服务常驻，并在云安全组和主机防火墙放行该端口。不带 `room` 的页面和 API 请求会返回 404。
