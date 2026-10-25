@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>极简决斗</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app" data-turn="0">
+    <header class="top">
+      <div class="brand">
+        <h1>极简决斗</h1>
+        <span class="brand-en">Minimal Duel</span>
+      </div>
+      <div class="top-right">
+        <span class="seat-pill" id="seatPill">连接中…</span>
+        <button class="icon-btn" id="soundBtn" type="button" aria-label="关闭声音" aria-pressed="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4Z"/>
+            <path class="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>
+            <path class="slash" d="M4 4l16 16"/>
+          </svg>
+        </button>
+        <div class="round-box">
+          <span class="round-label">Round</span>
+          <span class="round-num" id="roundNum">01</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="arena">
+      <article class="side p1" id="side0">
+        <div class="side-head">
+          <span class="side-name">玩家 1 <span class="you-mark" id="you0" hidden>你</span></span>
+          <span class="side-tag" id="tag0"></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">HP</span>
+          <span class="pips" id="hp0"></span>
+          <span class="stat-num" id="hpNum0">1</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">EN</span>
+          <span class="pips" id="en0"></span>
+          <span class="stat-num en-num" id="enNum0">0</span>
+        </div>
+      </article>
+
+      <article class="side p2" id="side1">
+        <div class="side-head">
+          <span class="side-name">玩家 2 <span class="you-mark" id="you1" hidden>你</span></span>
+          <span class="side-tag" id="tag1"></span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">HP</span>
+          <span class="pips" id="hp1"></span>
+          <span class="stat-num" id="hpNum1">1</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">EN</span>
+          <span class="pips" id="en1"></span>
+          <span class="stat-num en-num" id="enNum1">0</span>
+        </div>
+      </article>
+
+      <div class="stage" id="stage">
+        <div class="stage-content" id="stageContent" aria-live="polite">
+          <div class="vs"><span class="v1">V</span><span class="v2">S</span></div>
+          <div class="hint">正在连接服务器…</div>
+        </div>
+      </div>
+    </main>
+
+    <section class="controls" aria-label="行动选择">
+      <div class="action-grid" id="actionGrid"></div>
+      <div class="control-foot">
+        <p class="action-desc" id="actionDesc">正在连接服务器…</p>
+        <button class="lock-btn" id="lockBtn" type="button" disabled>锁定行动</button>
+      </div>
+    </section>
+
+    <section class="log-wrap">
+      <div class="log-head">
+        <span>战报</span>
+        <span id="logCount">0</span>
+      </div>
+      <ol class="log" id="log"></ol>
+    </section>
+
+    <details class="panel">
+      <summary>规则</summary>
+      <div class="panel-body">
+        <dl class="rules" id="rulesBody"></dl>
+        <ul class="rule-notes">
+          <li>两台设备各自秘密选行动,服务器收齐后同时结算。</li>
+          <li>先汇总每个玩家受到的伤害;同时攻击同一目标的伤害叠加。</li>
+          <li>互相攻击的两名玩家,伤害逐点抵消,只发生在双方之间。</li>
+          <li>每个玩家用受击值减去自己的防御值,得到最终扣血值。</li>
+          <li>能量无上限;血量降到 0 即败。当前 2 人局中目标固定为对手。</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>参数</summary>
+      <div class="panel-body">
+        <form class="cfg-grid" id="cfgForm">
+          <label class="cfg-field"><span>血量</span><input type="number" id="cfgHp" min="1" max="20" step="1" value="1"></label>
+          <label class="cfg-field"><span>初始能量</span><input type="number" id="cfgEnergy" min="0" max="20" step="1" value="0"></label>
+          <label class="cfg-field"><span>大招耗能</span><input type="number" id="cfgUltCost" min="1" max="20" step="1" value="5"></label>
+          <label class="cfg-field"><span>大招伤害</span><input type="number" id="cfgUltDmg" min="1" max="10" step="1" value="2"></label>
+          <button class="btn" type="submit">应用并重开</button>
+        </form>
+      </div>
+    </details>
+
+    <p class="foot-note">双屏同步 · 受击值减去防御值 · 选择只对本人可见</p>
+  </div>
+
+  <div class="overlay" id="overlay" hidden>
+    <div class="result-card" id="resultCard">
+      <span class="kicker" id="overKicker">Winner</span>
+      <h2 id="overTitle">玩家 1 获胜</h2>
+      <p id="overSub">第 1 回合</p>
+      <button class="btn-primary" id="againBtn" type="button">再来一局</button>
+    </div>
+  </div>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
