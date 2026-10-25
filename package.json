@@ -1,0 +1,13 @@
+{
+  "name": "minimal-duel",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Turn-based two-player duel with hidden simultaneous picks",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -25,6 +25,7 @@
   const view = {
     online: false,
     you: null,
+    mode: 'pvp',
     cfg: { ...DEFAULTS },
     hp: [1, 1],
     en: [0, 0],
@@ -41,6 +42,7 @@
   const params = new URLSearchParams(window.location.search);
   const preferredSeat = params.get('seat') === '0' ? 0 : params.get('seat') === '1' ? 1 : null;
   const room = params.get('room') || '';
+  const cpuParam = params.get('cpu');
   const FILE_MODE = window.location.protocol === 'file:';
   let token = '';
 
@@ -149,6 +151,21 @@
 
     $('you0').hidden = view.you !== 0;
     $('you1').hidden = view.you !== 1;
+    $('name0').textContent = '玩家 1';
+    $('name1').textContent = view.mode === 'cpu' ? '电脑' : '玩家 2';
+  }
+
+  function renderModeBar() {
+    const host = view.you === 0;
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      const active = view.mode === btn.dataset.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+      btn.disabled = !view.online || !host;
+    });
+    const note = $('modeNote');
+    if (!view.online) note.textContent = '';
+    else note.textContent = host ? '切换会重开当前局' : '只有玩家 1 可以切换';
   }
 
   function renderCards() {
@@ -269,6 +286,7 @@
 
   function renderAll() {
     renderHeader();
+    renderModeBar();
     renderCards();
     renderControls();
     renderLog();
@@ -372,8 +390,15 @@
       const winner = view.winner;
       card.classList.add(winner === 0 ? 'p1' : 'p2');
       $('overKicker').textContent = 'Winner';
-      $('overTitle').textContent = `玩家 ${winner + 1} 获胜`;
-      $('overSub').textContent = `第 ${view.round} 回合 · 玩家 ${2 - winner} 倒下`;
+      if (view.mode === 'cpu') {
+        const humanWin = view.you === 0 ? '你获胜' : '玩家 1 获胜';
+        const humanLose = view.you === 0 ? '你倒下' : '玩家 1 倒下';
+        $('overTitle').textContent = winner === 0 ? humanWin : '电脑获胜';
+        $('overSub').textContent = `第 ${view.round} 回合 · ${winner === 0 ? '电脑倒下' : humanLose}`;
+      } else {
+        $('overTitle').textContent = `玩家 ${winner + 1} 获胜`;
+        $('overSub').textContent = `第 ${view.round} 回合 · 玩家 ${2 - winner} 倒下`;
+      }
     }
 
     $('overlay').hidden = false;
@@ -412,6 +437,20 @@
     renderControls();
   }
 
+  async function switchMode(mode) {
+    if (view.you !== 0 || view.mode === mode) return;
+    const result = await post('/mode', { token, mode });
+    if (!result.ok) {
+      $('modeNote').textContent = '切换失败,请重试';
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('cpu', mode === 'cpu' ? '1' : '0');
+    url.searchParams.set('seat', '0');
+    window.history.replaceState(null, '', url);
+    beep(440, 0.06, 'triangle', 0.03);
+  }
+
   async function lockPick() {
     if (!isMyTurn() || !selected) return;
     const action = selected;
@@ -431,6 +470,7 @@
   function handleState(msg) {
     view.online = true;
     view.you = msg.you;
+    view.mode = msg.mode || 'pvp';
     view.connected = msg.connected;
     view.locked = msg.locked;
     view.yourPick = msg.yourPick;
@@ -522,6 +562,12 @@
       if (soundOn) beep(660, 0.06, 'triangle', 0.03);
     });
 
+    $('modeOptions').addEventListener('click', (event) => {
+      const btn = event.target.closest('button.mode-btn');
+      if (!btn || btn.disabled) return;
+      switchMode(btn.dataset.mode);
+    });
+
     document.addEventListener('keydown', (event) => {
       if (event.target.closest && event.target.closest('input, textarea, select')) return;
       if (event.key === 'Enter' && !$('lockBtn').disabled) {
@@ -545,7 +591,8 @@
   renderAll();
 
   if (!FILE_MODE) {
-    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
+    const cpuQuery = cpuParam === null ? '' : `&cpu=${encodeURIComponent(cpuParam)}`;
+    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
     const source = new EventSource(eventsUrl);
 
     source.onopen = () => {

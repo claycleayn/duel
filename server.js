@@ -5,13 +5,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { actionDefs, resolveRound } = require('./engine.js');
+const { chooseBotPick } = require('./bot.js');
 
 const PORT = Number(process.env.PORT) || 3000;
 const ACCESS_TOKEN = (process.env.ACCESS_TOKEN || '').trim();
 const ROOT = __dirname;
-const REVEAL_MS = 2400;
+const REVEAL_MS = Math.max(100, Number(process.env.REVEAL_MS) || 2400);
 const MAX_ROUNDS = 200;
 const MAX_LOG = 100;
+const BOT_TOKEN = '__cpu__!';
 
 const DEFAULTS = {
   hp: 1,
@@ -25,6 +27,7 @@ const DEFAULTS = {
 
 const game = {
   cfg: { ...DEFAULTS },
+  mode: 'pvp', // pvp | cpu
   hp: [1, 1],
   en: [0, 0],
   round: 1,
@@ -59,6 +62,7 @@ function isLive(conn) {
 
 function seatConnected(index) {
   const token = seats[index];
+  if (token === BOT_TOKEN) return true;
   return !!token && isLive(connections.get(token));
 }
 
@@ -93,11 +97,41 @@ function assignSeat(token, preferred) {
   return 'spectator';
 }
 
+function refreshSeats() {
+  for (const conn of connections.values()) {
+    const index = seats.indexOf(conn.token);
+    conn.seat = index === -1 ? 'spectator' : index;
+  }
+}
+
+function botPick() {
+  if (game.mode !== 'cpu' || game.phase !== 'pick' || game.picks[1]) return;
+  const defs = actionDefs(game.cfg);
+  const pick = chooseBotPick({ hp: game.hp, en: game.en, log: game.log, round: game.round }, defs);
+  if (!pick || !defs[pick.action] || game.en[1] < defs[pick.action].cost) {
+    game.picks[1] = { action: 'charge', target: 0 };
+    return;
+  }
+  game.picks[1] = { action: pick.action, target: 0 };
+}
+
+function setMode(mode) {
+  if (mode !== 'cpu' && mode !== 'pvp') return;
+  if (game.mode === mode) return;
+  game.mode = mode;
+  if (mode === 'cpu') seats[1] = BOT_TOKEN;
+  else if (seats[1] === BOT_TOKEN) seats[1] = null;
+  refreshSeats();
+  resetGame();
+  botPick();
+}
+
 function stateFor(conn) {
   const seat = conn.seat;
   return {
     type: 'state',
     you: seat,
+    mode: game.mode,
     cfg: game.cfg,
     hp: game.hp,
     en: game.en,
@@ -134,19 +168,21 @@ function broadcast() {
 }
 
 function makeLogEntry(round, picks, result, defs) {
+  const label = (index) => (game.mode === 'cpu' && index === 1 ? '电脑' : `玩家 ${index + 1}`);
   const bits = [];
   const canceledTotal = result.canceledPairs.reduce((sum, pair) => sum + pair.amount, 0);
   if (canceledTotal) bits.push(`抵消 <b>${canceledTotal}</b>`);
   for (let i = 0; i < 2; i += 1) {
-    if (result.blocked[i]) bits.push(`玩家 ${i + 1} 防御 −<b>${result.blocked[i]}</b>`);
+    if (result.blocked[i]) bits.push(`${label(i)} 防御 −<b>${result.blocked[i]}</b>`);
   }
   for (let i = 0; i < 2; i += 1) {
-    if (result.hpLoss[i]) bits.push(`玩家 ${i + 1} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
+    if (result.hpLoss[i]) bits.push(`${label(i)} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
   }
   const text = bits.length ? bits.join(' · ') : '无人受伤';
   const chip = (index) => {
     const delta = result.energyDelta[index];
     return {
+      key: picks[index].action,
       name: defs[picks[index].action].name,
       delta: delta ? `${delta > 0 ? '+' : '−'}${Math.abs(delta)}` : '',
     };
@@ -196,6 +232,7 @@ function resolvePicks() {
       game.picks = [null, null];
       game.phase = 'pick';
       game.reveal = null;
+      botPick();
     }
     broadcast();
   }, REVEAL_MS);
@@ -264,6 +301,10 @@ function handleEvents(req, res, url) {
 
   const seatParam = url.searchParams.get('seat');
   const preferred = seatParam === '0' ? 0 : seatParam === '1' ? 1 : null;
+
+  const cpuParam = url.searchParams.get('cpu');
+  if (cpuParam === '1') setMode('cpu');
+  else if (cpuParam === '0') setMode('pvp');
 
   const old = connections.get(token);
   if (old) {
@@ -345,6 +386,7 @@ function handlePick(req, res) {
     if (target === seat || target < 0 || target > 1) target = 1 - seat;
 
     game.picks[seat] = { action: body.action, target };
+    if (game.mode === 'cpu' && !game.picks[1]) botPick();
     if (game.picks[0] && game.picks[1]) resolvePicks();
     else broadcast();
     respond(res, 200, { ok: true });
@@ -368,6 +410,7 @@ function handleRestart(req, res) {
       return;
     }
     resetGame();
+    botPick();
     broadcast();
     console.log('[game] restart');
     respond(res, 200, { ok: true });
@@ -398,9 +441,33 @@ function handleConfig(req, res) {
     game.cfg.ultDmg = clamp(body.ultDmg, 1, 10, game.cfg.ultDmg);
 
     resetGame();
+    botPick();
     broadcast();
     console.log('[config]', game.cfg);
     respond(res, 200, { ok: true, cfg: game.cfg });
+  });
+}
+
+function handleMode(req, res) {
+  readBody(req, res, (body) => {
+    if (!roomOkBody(body)) {
+      respond(res, 403, { ok: false, error: 'forbidden' });
+      return;
+    }
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.seat !== 0) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    if (body.mode !== 'cpu' && body.mode !== 'pvp') {
+      respond(res, 400, { ok: false, error: 'bad mode' });
+      return;
+    }
+    setMode(body.mode);
+    broadcast();
+    console.log('[mode]', body.mode);
+    respond(res, 200, { ok: true, mode: body.mode });
   });
 }
 
@@ -450,12 +517,16 @@ const server = http.createServer((req, res) => {
     handleConfig(req, res);
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/mode') {
+    handleMode(req, res);
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     if (!roomOk(url)) {
       notFound(res);
       return;
     }
-    respond(res, 200, { ok: true, phase: game.phase, round: game.round, seats: game.picks.map(Boolean) });
+    respond(res, 200, { ok: true, mode: game.mode, phase: game.phase, round: game.round, seats: game.picks.map(Boolean) });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/favicon.ico') {
@@ -481,18 +552,23 @@ function lanAddresses() {
   return addresses;
 }
 
-function gameLink(host, seat) {
-  const query = ACCESS_TOKEN
-    ? `?room=${encodeURIComponent(ACCESS_TOKEN)}&seat=${seat}`
-    : `?seat=${seat}`;
-  return `http://${host}:${PORT}/${query}`;
+function gameLink(host, seat, cpu) {
+  const parts = [];
+  if (ACCESS_TOKEN) parts.push(`room=${encodeURIComponent(ACCESS_TOKEN)}`);
+  parts.push(`seat=${seat}`);
+  if (cpu !== null && cpu !== undefined) parts.push(`cpu=${cpu ? 1 : 0}`);
+  return `http://${host}:${PORT}/?${parts.join('&')}`;
 }
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('极简决斗 server');
-  console.log(`本机:   ${gameLink('localhost', 0)}   ${gameLink('localhost', 1)}`);
+  console.log(`本机:   P1 ${gameLink('localhost', 0, 0)}`);
+  console.log(`        P2 ${gameLink('localhost', 1, 0)}`);
+  console.log(`        CPU ${gameLink('localhost', 0, 1)}`);
   for (const address of lanAddresses()) {
-    console.log(`局域网: ${gameLink(address, 0)}   ${gameLink(address, 1)}`);
+    console.log(`局域网: P1 ${gameLink(address, 0, 0)}`);
+    console.log(`        P2 ${gameLink(address, 1, 0)}`);
+    console.log(`        CPU ${gameLink(address, 0, 1)}`);
   }
   if (ACCESS_TOKEN) console.log('房间令牌已启用:链接里带密钥,不要公开分享。');
   console.log('手机与电脑需能互相访问这个端口。Ctrl+C 停止。');
