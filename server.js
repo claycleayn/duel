@@ -448,6 +448,29 @@ function handleConfig(req, res) {
   });
 }
 
+function handleMode(req, res) {
+  readBody(req, res, (body) => {
+    if (!roomOkBody(body)) {
+      respond(res, 403, { ok: false, error: 'forbidden' });
+      return;
+    }
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.seat !== 0) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    if (body.mode !== 'cpu' && body.mode !== 'pvp') {
+      respond(res, 400, { ok: false, error: 'bad mode' });
+      return;
+    }
+    setMode(body.mode);
+    broadcast();
+    console.log('[mode]', body.mode);
+    respond(res, 200, { ok: true, mode: body.mode });
+  });
+}
+
 const STATIC = {
   '/engine.js': ['engine.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -492,6 +515,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/config') {
     handleConfig(req, res);
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/mode') {
+    handleMode(req, res);
     return;
   }
   if (req.method === 'GET' && url.pathname === '/health') {

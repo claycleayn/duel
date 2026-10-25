@@ -155,6 +155,19 @@
     $('name1').textContent = view.mode === 'cpu' ? '电脑' : '玩家 2';
   }
 
+  function renderModeBar() {
+    const host = view.you === 0;
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      const active = view.mode === btn.dataset.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+      btn.disabled = !view.online || !host;
+    });
+    const note = $('modeNote');
+    if (!view.online) note.textContent = '';
+    else note.textContent = host ? '切换会重开当前局' : '只有玩家 1 可以切换';
+  }
+
   function renderCards() {
     for (let i = 0; i < 2; i += 1) {
       const side = $('side' + i);
@@ -273,6 +286,7 @@
 
   function renderAll() {
     renderHeader();
+    renderModeBar();
     renderCards();
     renderControls();
     renderLog();
@@ -423,6 +437,20 @@
     renderControls();
   }
 
+  async function switchMode(mode) {
+    if (view.you !== 0 || view.mode === mode) return;
+    const result = await post('/mode', { token, mode });
+    if (!result.ok) {
+      $('modeNote').textContent = '切换失败,请重试';
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('cpu', mode === 'cpu' ? '1' : '0');
+    url.searchParams.set('seat', '0');
+    window.history.replaceState(null, '', url);
+    beep(440, 0.06, 'triangle', 0.03);
+  }
+
   async function lockPick() {
     if (!isMyTurn() || !selected) return;
     const action = selected;
@@ -532,6 +560,12 @@
       btn.setAttribute('aria-pressed', String(soundOn));
       btn.setAttribute('aria-label', soundOn ? '关闭声音' : '开启声音');
       if (soundOn) beep(660, 0.06, 'triangle', 0.03);
+    });
+
+    $('modeOptions').addEventListener('click', (event) => {
+      const btn = event.target.closest('button.mode-btn');
+      if (!btn || btn.disabled) return;
+      switchMode(btn.dataset.mode);
     });
 
     document.addEventListener('keydown', (event) => {

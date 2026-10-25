@@ -114,6 +114,22 @@ function waitFor(client, predicate, timeout = 4000) {
   });
 }
 
+function waitForSince(client, start, predicate, timeout = 4000) {
+  for (let i = start; i < client.messages.length; i += 1) {
+    if (predicate(client.messages[i])) return Promise.resolve(client.messages[i]);
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout waiting for state')), timeout);
+    client.waiters.push({
+      predicate,
+      resolve: (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      },
+    });
+  });
+}
+
 async function pick(port, token, action, target) {
   const res = await request(port, '/pick', 'POST', { token, action, target });
   assert.equal(res.status, 200, `pick ${action}: ${JSON.stringify(res)}`);
@@ -189,6 +205,22 @@ test('cpu: bot locks privately, resolves, and re-picks each round', async (t) =>
   clients.push(x);
   const spectator = await waitFor(x, (m) => m.mode === 'cpu' && m.you === 'spectator');
   assert.equal(spectator.you, 'spectator');
+
+  const denied = await request(srv.port, '/mode', 'POST', { token: 'other', mode: 'pvp' });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.json.error, 'host only');
+
+  const markPvp = h.messages.length;
+  const switchPvp = await request(srv.port, '/mode', 'POST', { token: 'human', mode: 'pvp' });
+  assert.equal(switchPvp.status, 200);
+  const pvpHost = await waitForSince(h, markPvp, (m) => m.mode === 'pvp' && m.round === 1);
+  assert.equal(pvpHost.mode, 'pvp');
+
+  const markCpu = h.messages.length;
+  const switchCpu = await request(srv.port, '/mode', 'POST', { token: 'human', mode: 'cpu' });
+  assert.equal(switchCpu.status, 200);
+  const cpuHost = await waitForSince(h, markCpu, (m) => m.mode === 'cpu' && m.locked[1] === true);
+  assert.deepEqual(cpuHost.locked, [false, true]);
 
   const p = await sse(srv.port, 'token=pvp&seat=1&cpu=0');
   clients.push(p);
