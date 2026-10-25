@@ -664,7 +664,7 @@
     opacity: .75;
   }
   .side.offline { opacity: .55; }
-  .side-badges { display: flex; align-items: center; gap: 6px; }
+  .side-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .shield-mark {
     padding: 3px 7px;
     border: 1px solid currentColor;
@@ -685,26 +685,22 @@
   .mode-note { font-size: 11px; color: var(--muted); }
   .side.dead { opacity: .55; }
   .side.dead .side-name { text-decoration: line-through; }
-  .target-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .target-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
-  .target-options { display: flex; flex-wrap: wrap; gap: 6px; }
-  .target-btn {
-    appearance: none;
-    padding: 4px 10px;
-    border: 1px solid var(--line);
+  .target-mark {
+    padding: 3px 7px;
+    border: 1px dashed currentColor;
     border-radius: 999px;
-    background: var(--surface);
-    color: var(--muted);
-    font-family: var(--font-body);
-    font-size: 11px;
-    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: .06em;
+    color: var(--side-color);
+    white-space: nowrap;
   }
-  .target-btn:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
-  .target-btn.selected {
-    border-color: var(--target-color);
-    color: var(--target-color);
-    background: color-mix(in srgb, var(--target-color) 10%, var(--surface));
+  .side.target {
+    border-color: var(--side-color);
+    box-shadow: 0 0 0 2px var(--side-color), 0 0 32px -12px var(--side-color);
   }
+  .arena.targeting .side:not(.active):not(.dead) { cursor: pointer; }
+  .arena.targeting .side:not(.active):not(.dead):hover { border-color: var(--side-color); }
   .clash-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
   .clash-row {
     display: flex;

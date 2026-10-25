@@ -214,6 +214,8 @@
   function renderCards() {
     const arena = document.querySelector('.arena');
     if (arena) arena.dataset.players = String(view.playerCount);
+    const defs = currentDefs();
+    const targeting = isMyTurn() && selected && needsTarget(defs[selected]);
     for (let i = 0; i < 4; i += 1) {
       const side = $('side' + i);
       side.hidden = i >= view.playerCount;
@@ -248,6 +250,9 @@
       $('hpNum' + i).textContent = view.hp[i];
       $('enNum' + i).textContent = view.en[i];
       $('shield' + i).hidden = !view.shield[i];
+      const isTarget = targeting && view.target === i;
+      side.classList.toggle('target', isTarget);
+      $('target' + i).hidden = !isTarget;
     }
   }
 
@@ -267,15 +272,13 @@
 
     const sel = selected ? defs[selected] : null;
     const targetNeeded = sel ? needsTarget(sel) : false;
-    const showTarget = pickable && targetNeeded;
-    if (showTarget) {
+    const targeting = pickable && targetNeeded;
+    if (targeting) {
       const options = alivePlayers().filter((i) => i !== view.you);
       if (!options.includes(view.target)) view.target = options[0] ?? null;
-      $('targetOptions').innerHTML = options.map((i) => (
-        `<button type="button" class="target-btn${view.target === i ? ' selected' : ''}" data-target="${i}" style="--target-color: var(--p${i + 1})">${playerName(i)}</button>`
-      )).join('');
     }
-    $('targetRow').hidden = !showTarget;
+    const arena = document.querySelector('.arena');
+    if (arena) arena.classList.toggle('targeting', targeting);
 
     let desc = '';
     if (FILE_MODE) desc = '请先运行 node server.js,再打开 http://localhost:3000';
@@ -294,7 +297,7 @@
         desc = '已锁定,等待其他玩家…';
       }
     } else if (sel) {
-      desc = sel.desc;
+      desc = sel.desc + (targetNeeded ? ' 点击上方玩家卡片选择目标。' : '');
     } else {
       desc = '选择一项行动。';
     }
@@ -356,7 +359,7 @@
         <li>所有人秘密选招、同时结算;互相攻击的伤害逐点抵消,再汇总受击值减防御。</li>
         <li>水枪的穿透无视光明/黑暗与逃脱;防御和特殊护盾仍然有效。</li>
         <li>光明/黑暗只转移普通伤害;没有转移任何伤害时只消耗 1 点能量;转移来的伤害不会再次转移。</li>
-        <li>血量归零即败;攻击/黑暗需要选择目标(2 人局自动是对手)。</li>
+        <li>血量归零即败;攻击/黑暗点其他玩家卡片选目标(2 人局自动是对手)。</li>
       `;
       return;
     }
@@ -372,7 +375,7 @@
       <li>先汇总每个玩家受到的伤害;同时攻击同一目标的伤害叠加。</li>
       <li>互相攻击的两名玩家,伤害逐点抵消,只发生在双方之间。</li>
       <li>每个玩家用受击值减去自己的防御值,得到最终扣血值。</li>
-      <li>能量无上限;血量降到 0 即败;攻击/大招需要选择目标。</li>
+      <li>能量无上限;血量降到 0 即败;攻击/大招点其他玩家卡片选目标。</li>
     `;
   }
 
@@ -561,6 +564,19 @@
       view.target = null;
     }
     beep(view.you === 0 ? 520 : 600, 0.05, 'triangle', 0.03);
+    renderCards();
+    renderControls();
+  }
+
+  function selectTarget(index) {
+    const def = selected ? currentDefs()[selected] : null;
+    if (!def || !needsTarget(def) || !isMyTurn()) return;
+    if (!Number.isInteger(index) || index === view.you || index < 0 || index >= view.playerCount) return;
+    if (view.hp[index] <= 0) return;
+    if (view.target === index) return;
+    view.target = index;
+    beep(520, 0.04, 'triangle', 0.025);
+    renderCards();
     renderControls();
   }
 
@@ -751,12 +767,11 @@
       switchPlayerCount(Number(btn.dataset.count));
     });
 
-    $('targetOptions').addEventListener('click', (event) => {
-      const btn = event.target.closest('button.target-btn');
-      if (!btn) return;
-      view.target = Number(btn.dataset.target);
-      renderControls();
-      beep(520, 0.04, 'triangle', 0.025);
+    document.querySelector('.arena').addEventListener('click', (event) => {
+      const side = event.target.closest('.side');
+      if (!side) return;
+      const index = Number(side.id.replace('side', ''));
+      if (Number.isInteger(index)) selectTarget(index);
     });
 
     document.addEventListener('keydown', (event) => {
