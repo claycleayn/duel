@@ -195,6 +195,15 @@ function makeLogEntry(round, picks, result, defs) {
     bits.push(`${label(move.from)} ${move.via === 'light' ? '光明' : '黑暗'}转移 <b>${move.amount}</b>`);
   }
   for (let i = 0; i < 2; i += 1) {
+    if (result.escaped[i]) bits.push(`${label(i)} 逃脱`);
+  }
+  for (let i = 0; i < 2; i += 1) {
+    const key = picks[i].action;
+    if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
+      bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
+    }
+  }
+  for (let i = 0; i < 2; i += 1) {
     if (result.hpLoss[i]) bits.push(`${label(i)} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
   }
   const text = bits.length ? bits.join(' · ') : '无人受伤';

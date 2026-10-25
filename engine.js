@@ -49,13 +49,18 @@
         },
         light: {
           key: 'light', name: '光明', cost: 4, tag: '4 EN',
-          desc: '本回合受到的普通伤害转移给攻击者;对穿透伤害无效。',
+          desc: '转移受到的普通伤害给攻击者;成功转移耗 4 点,没有转移任何伤害只耗 1 点。对穿透伤害无效。',
           effects: [{ kind: 'transfer', mode: 'source' }],
         },
         dark: {
           key: 'dark', name: '黑暗', cost: 5, tag: '5 EN',
-          desc: '本回合受到的普通伤害转移给指定目标;对穿透伤害无效。',
+          desc: '转移受到的普通伤害给指定目标;成功转移耗 5 点,没有转移任何伤害只耗 1 点。对穿透伤害无效。',
           effects: [{ kind: 'transfer', mode: 'target', target: 'chosen' }],
+        },
+        escape: {
+          key: 'escape', name: '逃脱', cost: 1, tag: '1 EN',
+          desc: '免疫本回合所有普通伤害;穿透伤害仍然命中。',
+          effects: [{ kind: 'immunity' }],
         },
       };
     }
@@ -116,6 +121,7 @@
     const energyDelta = Array(playerCount).fill(0);
     const defense = Array(playerCount).fill(0);
     const transfers = Array(playerCount).fill(null);
+    const immunity = Array(playerCount).fill(false);
     const normal = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
     const piercing = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
 
@@ -140,6 +146,8 @@
             mode: effect.mode,
             target: effect.mode === 'target' ? resolveChosen(pick, from, playerCount) : null,
           };
+        } else if (effect.kind === 'immunity') {
+          immunity[from] = true;
         }
       }
     }
@@ -192,6 +200,21 @@
       }
     }
 
+    // 光明/黑暗:成功转移才付全额,没有转移任何伤害只付 1 费。
+    for (let i = 0; i < playerCount; i += 1) {
+      const transfer = transfers[i];
+      if (!transfer) continue;
+      const fired = transferred.some((move) => move.from === i);
+      if (!fired) energyDelta[i] += defs[picks[i].action].cost - 1;
+    }
+
+    // 逃脱:免疫普通伤害;穿透伤害保留。
+    for (let i = 0; i < playerCount; i += 1) {
+      if (!immunity[i]) continue;
+      for (let from = 0; from < playerCount; from += 1) normal[from][i] = 0;
+      transferredIn[i] = 0;
+    }
+
     const incoming = Array.from({ length: playerCount }, (_, to) => {
       let total = transferredIn[to];
       for (let from = 0; from < playerCount; from += 1) {
@@ -223,6 +246,7 @@
       piercing,
       canceledPairs,
       transferred,
+      escaped: immunity,
       incoming,
       blocked,
       hpLoss,

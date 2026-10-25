@@ -24,6 +24,7 @@
     water: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>',
     light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
     dark: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/>',
+    escape: '<path d="M5 7l5 5-5 5M12 7l5 5-5 5"/>',
   };
 
   const view = {
@@ -284,15 +285,16 @@
         <dt>攻击</dt><dd>消耗 ${view.cfg.attackCost} 点能量,造成 ${view.cfg.attackDmg} 点伤害。</dd>
         <dt>防御</dt><dd>本回合受到的伤害减免 ${view.cfg.defendReduce} 点(一次)。</dd>
         <dt>双斩</dt><dd>消耗 4 点能量,造成 2 点伤害。</dd>
-        <dt>水枪</dt><dd>消耗 3 点能量,造成 1 点穿透伤害;穿透只无视光明/黑暗。</dd>
-        <dt>光明</dt><dd>消耗 4 点;受到的普通伤害转移给攻击者,穿透伤害不转移。</dd>
-        <dt>黑暗</dt><dd>消耗 5 点;受到的普通伤害转移给指定目标,穿透伤害不转移。</dd>
+        <dt>水枪</dt><dd>消耗 3 点能量,造成 1 点穿透伤害;穿透只无视光明/黑暗与逃脱。</dd>
+        <dt>光明</dt><dd>转移受到的普通伤害给攻击者;成功转移耗 4 点,没有转移任何伤害只耗 1 点。</dd>
+        <dt>黑暗</dt><dd>转移受到的普通伤害给指定目标;成功转移耗 5 点,没有转移任何伤害只耗 1 点。</dd>
+        <dt>逃脱</dt><dd>消耗 1 点能量,免疫本回合所有普通伤害;穿透伤害仍然命中。</dd>
       `;
       $('rulesNotes').innerHTML = `
         <li>每人开局 1 层特殊护盾;第一次会掉血时消耗,免疫该回合剩余伤害。</li>
         <li>双方秘密选招、同时结算;互相攻击的伤害逐点抵消,再汇总受击值减防御。</li>
-        <li>水枪的穿透无视光明/黑暗;防御和特殊护盾仍然有效。</li>
-        <li>光明/黑暗只转移普通伤害;转移进来的伤害不会再次转移。</li>
+        <li>水枪的穿透无视光明/黑暗与逃脱;防御和特殊护盾仍然有效。</li>
+        <li>光明/黑暗只转移普通伤害;没有转移任何伤害时只消耗 1 点能量;转移来的伤害不会再次转移。</li>
         <li>血量归零即败;2 人局目标固定为对手。</li>
       `;
       return;
@@ -409,6 +411,9 @@
     if (result.shieldUsed[0]) flashGuard(0);
     if (result.shieldUsed[1]) flashGuard(1);
     if (result.shieldUsed[0] || result.shieldUsed[1]) beep(500, 0.09, 'triangle', 0.03);
+    if (result.escaped[0]) flashGuard(0);
+    if (result.escaped[1]) flashGuard(1);
+    if (result.escaped[0] || result.escaped[1]) beep(620, 0.08, 'triangle', 0.03);
     if (result.hpLoss[0]) flashSide(0, result.hpLoss[0]);
     if (result.hpLoss[1]) flashSide(1, result.hpLoss[1]);
     if (result.hpLoss[0] || result.hpLoss[1]) beep(90, 0.18, 'sine', 0.06);
