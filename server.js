@@ -13,6 +13,7 @@ const ROOT = __dirname;
 const REVEAL_MS = Math.max(100, Number(process.env.REVEAL_MS) || 2400);
 const MAX_ROUNDS = 200;
 const MAX_LOG = 100;
+const MAX_PLAYERS = 4;
 const BOT_TOKEN = '__cpu__!';
 
 const DEFAULTS = {
@@ -29,12 +30,13 @@ const game = {
   cfg: { ...DEFAULTS },
   mode: 'pvp', // pvp | cpu
   ruleset: 'full', // minimal | full
-  hp: [1, 1],
-  en: [0, 0],
-  shield: [true, true],
+  playerCount: 2,
+  hp: [1, 1, 0, 0],
+  en: [0, 0, 0, 0],
+  shield: [true, true, false, false],
   round: 1,
   phase: 'pick', // pick | reveal | over
-  picks: [null, null],
+  picks: [null, null, null, null],
   winner: null,
   log: [],
   reveal: null,
@@ -42,18 +44,24 @@ const game = {
   timer: null,
 };
 
-const seats = [null, null];
+const seats = [null, null, null, null];
 const connections = new Map(); // token -> { token, seat, res, heartbeat }
 
 function resetGame() {
   clearTimeout(game.timer);
   game.timer = null;
-  game.hp = [game.cfg.hp, game.cfg.hp];
-  game.en = [game.cfg.startEnergy, game.cfg.startEnergy];
-  game.shield = [game.ruleset === 'full', game.ruleset === 'full'];
+  const count = game.playerCount;
+  game.hp = [0, 0, 0, 0];
+  game.en = [0, 0, 0, 0];
+  game.shield = [false, false, false, false];
+  for (let i = 0; i < count; i += 1) {
+    game.hp[i] = game.cfg.hp;
+    game.en[i] = game.cfg.startEnergy;
+    game.shield[i] = game.ruleset === 'full';
+  }
   game.round = 1;
   game.phase = 'pick';
-  game.picks = [null, null];
+  game.picks = [null, null, null, null];
   game.winner = null;
   game.log = [];
   game.reveal = null;
@@ -74,6 +82,7 @@ function seatOfToken(token) {
 }
 
 function seatAvailable(index) {
+  if (index < 0 || index >= game.playerCount) return false;
   return seats[index] == null || !seatConnected(index);
 }
 
@@ -85,13 +94,13 @@ function claimSeat(index, token) {
 function assignSeat(token, preferred) {
   const existing = seatOfToken(token);
   if (existing !== -1) return existing;
-  if (preferred === 0 || preferred === 1) {
+  if (Number.isInteger(preferred) && preferred >= 0 && preferred < game.playerCount) {
     if (seatAvailable(preferred)) {
       claimSeat(preferred, token);
       return preferred;
     }
   }
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < game.playerCount; i += 1) {
     if (seatAvailable(i)) {
       claimSeat(i, token);
       return i;
@@ -122,8 +131,25 @@ function setMode(mode) {
   if (mode !== 'cpu' && mode !== 'pvp') return;
   if (game.mode === mode) return;
   game.mode = mode;
-  if (mode === 'cpu') seats[1] = BOT_TOKEN;
-  else if (seats[1] === BOT_TOKEN) seats[1] = null;
+  if (mode === 'cpu') {
+    game.playerCount = 2;
+    seats[1] = BOT_TOKEN;
+    seats[2] = null;
+    seats[3] = null;
+  } else if (seats[1] === BOT_TOKEN) {
+    seats[1] = null;
+  }
+  refreshSeats();
+  resetGame();
+  botPick();
+}
+
+function setPlayerCount(count) {
+  if (count !== 2 && count !== 3 && count !== 4) return;
+  if (game.playerCount === count) return;
+  if (game.mode === 'cpu') setMode('pvp');
+  game.playerCount = count;
+  for (let i = count; i < MAX_PLAYERS; i += 1) seats[i] = null;
   refreshSeats();
   resetGame();
   botPick();
@@ -139,21 +165,23 @@ function setRuleset(ruleset) {
 
 function stateFor(conn) {
   const seat = conn.seat;
+  const count = game.playerCount;
   return {
     type: 'state',
     you: seat,
     mode: game.mode,
     ruleset: game.ruleset,
+    playerCount: count,
     cfg: game.cfg,
-    hp: game.hp,
-    en: game.en,
-    shield: game.shield,
+    hp: game.hp.slice(0, count),
+    en: game.en.slice(0, count),
+    shield: game.shield.slice(0, count),
     round: game.round,
     phase: game.phase,
     winner: game.winner,
-    locked: game.picks.map((pick) => pick != null),
-    yourPick: typeof seat === 'number' && game.picks[seat] ? game.picks[seat].action : null,
-    connected: [seatConnected(0), seatConnected(1)],
+    locked: game.picks.slice(0, count).map((pick) => pick != null),
+    yourPick: typeof seat === 'number' && game.picks[seat] ? game.picks[seat] : null,
+    connected: Array.from({ length: count }, (_, i) => seatConnected(i)),
     log: game.log,
     reveal: game.reveal
       ? {
@@ -181,54 +209,70 @@ function broadcast() {
 }
 
 function makeLogEntry(round, picks, result, defs) {
+  const count = game.playerCount;
   const label = (index) => (game.mode === 'cpu' && index === 1 ? '电脑' : `玩家 ${index + 1}`);
   const bits = [];
   const canceledTotal = result.canceledPairs.reduce((sum, pair) => sum + pair.amount, 0);
   if (canceledTotal) bits.push(`抵消 <b>${canceledTotal}</b>`);
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     if (result.blocked[i]) bits.push(`${label(i)} 防御 −<b>${result.blocked[i]}</b>`);
   }
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     if (result.shieldBlocked[i]) bits.push(`${label(i)} 护盾抵挡 <b>${result.shieldBlocked[i]}</b>`);
   }
   for (const move of result.transferred || []) {
     bits.push(`${label(move.from)} ${move.via === 'light' ? '光明' : '黑暗'}转移 <b>${move.amount}</b>`);
   }
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     if (result.escaped[i]) bits.push(`${label(i)} 逃脱`);
   }
-  for (let i = 0; i < 2; i += 1) {
-    const key = picks[i].action;
+  for (let i = 0; i < count; i += 1) {
+    const pick = picks[i];
+    if (!pick) continue;
+    const key = pick.action;
     if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
       bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
     }
   }
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     if (result.hpLoss[i]) bits.push(`${label(i)} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
   }
   const text = bits.length ? bits.join(' · ') : '无人受伤';
-  const chip = (index) => {
-    const delta = result.energyDelta[index];
-    return {
-      key: picks[index].action,
-      name: defs[picks[index].action].name,
+
+  const players = [];
+  for (let i = 0; i < count; i += 1) {
+    const pick = picks[i];
+    if (!pick) {
+      players.push({ key: null, name: '—', delta: '', target: null });
+      continue;
+    }
+    const delta = result.energyDelta[i];
+    players.push({
+      key: pick.action,
+      name: defs[pick.action].name,
       delta: delta ? `${delta > 0 ? '+' : '−'}${Math.abs(delta)}` : '',
-    };
-  };
-  return { round, a: chip(0), b: chip(1), text };
+      target: pick.target,
+    });
+  }
+  return { round, players, text };
 }
 
 function resolvePicks() {
+  const count = game.playerCount;
   const defs = actionDefs(game.cfg, game.ruleset);
-  const picks = game.picks.slice();
-  const result = resolveRound(2, picks, defs, { shield: game.shield });
-  const before = { hp: game.hp.slice(), en: game.en.slice(), shield: game.shield.slice() };
+  const picks = game.picks.slice(0, count);
+  const result = resolveRound(count, picks, defs, { shield: game.shield.slice(0, count) });
+  const before = {
+    hp: game.hp.slice(0, count),
+    en: game.en.slice(0, count),
+    shield: game.shield.slice(0, count),
+  };
 
-  for (let i = 0; i < 2; i += 1) {
+  for (let i = 0; i < count; i += 1) {
     game.en[i] += result.energyDelta[i];
     game.hp[i] = Math.max(0, game.hp[i] - result.hpLoss[i]);
   }
-  game.shield = result.shieldAfter;
+  game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));
 
   const entry = makeLogEntry(game.round, picks, result, defs);
   game.log.unshift(entry);
@@ -243,10 +287,12 @@ function resolvePicks() {
     before,
   };
 
-  const dead0 = game.hp[0] <= 0;
-  const dead1 = game.hp[1] <= 0;
-  const finished = dead0 || dead1;
-  if (finished) game.winner = dead0 && dead1 ? 'draw' : dead0 ? 1 : 0;
+  const alive = [];
+  for (let i = 0; i < count; i += 1) {
+    if (game.hp[i] > 0) alive.push(i);
+  }
+  const finished = alive.length <= 1;
+  if (finished) game.winner = alive.length === 1 ? alive[0] : 'draw';
 
   clearTimeout(game.timer);
   game.timer = setTimeout(() => {
@@ -258,7 +304,7 @@ function resolvePicks() {
       game.winner = 'draw';
     } else {
       game.round += 1;
-      game.picks = [null, null];
+      game.picks = [null, null, null, null];
       game.phase = 'pick';
       game.reveal = null;
       botPick();
@@ -268,7 +314,7 @@ function resolvePicks() {
 
   broadcast();
   const plain = entry.text.replace(/<[^>]+>/g, '');
-  console.log(`[round ${game.round}] P1 ${picks[0].action} vs P2 ${picks[1].action} · ${plain}`);
+  console.log(`[round ${game.round}] ${picks.map((pick, i) => (pick ? `P${i + 1} ${pick.action}` : `P${i + 1} —`)).join(' vs ')} · ${plain}`);
 }
 
 function cleanToken(raw) {
@@ -329,14 +375,18 @@ function handleEvents(req, res, url) {
   }
 
   const seatParam = url.searchParams.get('seat');
-  const preferred = seatParam === '0' ? 0 : seatParam === '1' ? 1 : null;
+  const preferred = ['0', '1', '2', '3'].includes(seatParam) ? Number(seatParam) : null;
 
   const cpuParam = url.searchParams.get('cpu');
   const rulesParam = url.searchParams.get('rules');
+  const playersParam = url.searchParams.get('players');
   const isHost = preferred === 0 && (seatOfToken(token) === 0 || seatAvailable(0));
   if (isHost) {
     if (cpuParam === '1') setMode('cpu');
     else if (cpuParam === '0') setMode('pvp');
+    if (playersParam === '2' || playersParam === '3' || playersParam === '4') {
+      setPlayerCount(Number(playersParam));
+    }
     if (rulesParam === 'full') setRuleset('full');
     else if (rulesParam === 'minimal') setRuleset('minimal');
   }
@@ -401,6 +451,10 @@ function handlePick(req, res) {
       respond(res, 409, { ok: false, error: 'not picking' });
       return;
     }
+    if (game.hp[seat] <= 0) {
+      respond(res, 409, { ok: false, error: 'dead' });
+      return;
+    }
     if (game.picks[seat]) {
       respond(res, 409, { ok: false, error: 'already locked' });
       return;
@@ -417,12 +471,27 @@ function handlePick(req, res) {
       return;
     }
 
-    let target = Number.isInteger(body.target) ? body.target : 1 - seat;
-    if (target === seat || target < 0 || target > 1) target = 1 - seat;
+    const count = game.playerCount;
+    const alive = [];
+    for (let i = 0; i < count; i += 1) {
+      if (game.hp[i] > 0) alive.push(i);
+    }
+    const needsTarget = (def.effects ?? []).some((effect) => (
+      (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
+    ));
+    let target = Number.isInteger(body.target) ? body.target : null;
+    if (target == null || target === seat || target < 0 || target >= count || game.hp[target] <= 0) {
+      target = alive.find((index) => index !== seat) ?? null;
+    }
+    if (needsTarget && target == null) {
+      respond(res, 400, { ok: false, error: 'no target' });
+      return;
+    }
 
     game.picks[seat] = { action: body.action, target };
     if (game.mode === 'cpu' && !game.picks[1]) botPick();
-    if (game.picks[0] && game.picks[1]) resolvePicks();
+    const allPicked = alive.every((index) => game.picks[index] != null);
+    if (allPicked) resolvePicks();
     else broadcast();
     respond(res, 200, { ok: true });
   });
@@ -529,6 +598,30 @@ function handleRuleset(req, res) {
   });
 }
 
+function handlePlayerCount(req, res) {
+  readBody(req, res, (body) => {
+    if (!roomOkBody(body)) {
+      respond(res, 403, { ok: false, error: 'forbidden' });
+      return;
+    }
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.seat !== 0) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    const count = Number(body.playerCount);
+    if (count !== 2 && count !== 3 && count !== 4) {
+      respond(res, 400, { ok: false, error: 'bad player count' });
+      return;
+    }
+    setPlayerCount(count);
+    broadcast();
+    console.log('[players]', count);
+    respond(res, 200, { ok: true, playerCount: count });
+  });
+}
+
 const STATIC = {
   '/engine.js': ['engine.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -583,12 +676,16 @@ const server = http.createServer((req, res) => {
     handleRuleset(req, res);
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/playercount') {
+    handlePlayerCount(req, res);
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     if (!roomOk(url)) {
       notFound(res);
       return;
     }
-    respond(res, 200, { ok: true, mode: game.mode, ruleset: game.ruleset, phase: game.phase, round: game.round, shield: game.shield, seats: game.picks.map(Boolean) });
+    respond(res, 200, { ok: true, mode: game.mode, ruleset: game.ruleset, playerCount: game.playerCount, phase: game.phase, round: game.round, shield: game.shield, seats: game.picks.map(Boolean) });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/favicon.ico') {
@@ -627,10 +724,14 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('极简决斗 server');
   console.log(`本机:   P1 ${gameLink('localhost', 0, 0, 'full')}`);
   console.log(`        P2 ${gameLink('localhost', 1, null, null)}`);
+  console.log(`        P3 ${gameLink('localhost', 2, null, null)}`);
+  console.log(`        P4 ${gameLink('localhost', 3, null, null)}`);
   console.log(`        CPU ${gameLink('localhost', 0, 1, 'full')}`);
   for (const address of lanAddresses()) {
     console.log(`局域网: P1 ${gameLink(address, 0, 0, 'full')}`);
     console.log(`        P2 ${gameLink(address, 1, null, null)}`);
+    console.log(`        P3 ${gameLink(address, 2, null, null)}`);
+    console.log(`        P4 ${gameLink(address, 3, null, null)}`);
     console.log(`        CPU ${gameLink(address, 0, 1, 'full')}`);
   }
   if (ACCESS_TOKEN) console.log('房间令牌已启用:链接里带密钥,不要公开分享。');
