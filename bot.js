@@ -1,10 +1,16 @@
 'use strict';
 
 /*
- * CPU 对手策略。只读取公开状态(血量/能量/历史行动),不偷看人类本回合的选择。
+ * CPU 对手策略。只读取公开状态(血量/能量/护盾/历史行动),不偷看人类本回合的选择。
  * 返回 { action, target };random 可注入,方便测试。
  */
 function chooseBotPick(state, defs, random = Math.random) {
+  return defs.ult
+    ? chooseMinimalPick(state, defs, random)
+    : chooseFullPick(state, defs, random);
+}
+
+function chooseMinimalPick(state, defs, random) {
   const HUMAN = 0;
   const BOT = 1;
   const en = state.en[BOT];
@@ -54,6 +60,54 @@ function chooseBotPick(state, defs, random = Math.random) {
   if (random() < 0.65) return pick(best);
   const options = ['attack', 'defend', 'charge'];
   return pick(options[Math.floor(random() * options.length) % options.length]);
+}
+
+function chooseFullPick(state, defs, random) {
+  const HUMAN = 0;
+  const BOT = 1;
+  const en = state.en[BOT];
+  const humanEn = state.en[HUMAN];
+  const humanShield = !!(state.shield && state.shield[HUMAN]);
+
+  const history = (state.log || [])
+    .slice(0, 12)
+    .map((entry) => entry.a && entry.a.key)
+    .filter(Boolean);
+
+  const counts = {};
+  for (const key of history) counts[key] = (counts[key] || 0) + 1;
+  const total = history.length || 1;
+
+  const pick = (action) => ({ action, target: HUMAN });
+  const afford = (key) => !!defs[key] && en >= defs[key].cost;
+
+  // 人类护盾还在:先用最便宜的伤害把盾打掉,别把 4/5 费技能喂给盾。
+  if (humanShield) {
+    if (afford('attack')) return pick(random() < 0.8 ? 'attack' : 'charge');
+    if (afford('water')) return pick('water');
+    return pick(random() < 0.3 ? 'defend' : 'charge');
+  }
+
+  const attackRate = (counts.attack || 0) / total;
+  const waterRate = (counts.water || 0) / total;
+  const transferRate = ((counts.light || 0) + (counts.dark || 0)) / total;
+
+  // 人类历史上爱攻击、又不太用水枪时,光明转移一次很赚。
+  if (afford('light') && humanEn >= defs.attack.cost && attackRate > 0.35 && waterRate < 0.2) {
+    if (random() < 0.25) return pick('light');
+  }
+
+  // 人类爱用光明/黑暗时,水枪的穿透反过来克制。
+  if (afford('double')) {
+    if (transferRate > 0.35 && afford('water') && random() < 0.6) return pick('water');
+    return pick(random() < 0.75 ? 'double' : afford('attack') ? 'attack' : 'double');
+  }
+  if (afford('water')) {
+    return pick(random() < 0.55 ? 'water' : afford('attack') ? 'attack' : 'water');
+  }
+  if (afford('attack')) return pick('attack');
+
+  return pick(random() < 0.3 ? 'defend' : 'charge');
 }
 
 module.exports = { chooseBotPick };

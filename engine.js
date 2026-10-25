@@ -6,7 +6,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  function actionDefs(cfg) {
+  function actionDefs(cfg, ruleset = 'minimal') {
     const c = {
       attackCost: 1,
       attackDmg: 1,
@@ -16,22 +16,54 @@
       ...cfg,
     };
 
+    const charge = {
+      key: 'charge', name: '蓄力', cost: 0, tag: '+1 EN',
+      desc: '获得 1 点能量。',
+      effects: [{ kind: 'energy', amount: 1 }],
+    };
+    const defend = {
+      key: 'defend', name: '防御', cost: 0, tag: '免费',
+      desc: `本回合受到的伤害减免 ${c.defendReduce} 点(一次)。`,
+      effects: [{ kind: 'defense', amount: c.defendReduce }],
+    };
+    const attack = {
+      key: 'attack', name: '攻击', cost: c.attackCost, tag: `${c.attackCost} EN`,
+      desc: `消耗 ${c.attackCost} 点能量,造成 ${c.attackDmg} 点伤害。`,
+      effects: [{ kind: 'damage', amount: c.attackDmg, target: 'chosen' }],
+    };
+
+    if (ruleset === 'full') {
+      return {
+        charge,
+        attack,
+        defend,
+        double: {
+          key: 'double', name: '双斩', cost: 4, tag: '4 EN',
+          desc: '消耗 4 点能量,造成 2 点伤害。',
+          effects: [{ kind: 'damage', amount: 2, target: 'chosen' }],
+        },
+        water: {
+          key: 'water', name: '水枪', cost: 3, tag: '3 EN',
+          desc: '消耗 3 点能量,造成 1 点穿透伤害;穿透无视光明/黑暗,防御和护盾仍然有效。',
+          effects: [{ kind: 'damage', amount: 1, target: 'chosen', piercing: true }],
+        },
+        light: {
+          key: 'light', name: '光明', cost: 4, tag: '4 EN',
+          desc: '本回合受到的普通伤害转移给攻击者;对穿透伤害无效。',
+          effects: [{ kind: 'transfer', mode: 'source' }],
+        },
+        dark: {
+          key: 'dark', name: '黑暗', cost: 5, tag: '5 EN',
+          desc: '本回合受到的普通伤害转移给指定目标;对穿透伤害无效。',
+          effects: [{ kind: 'transfer', mode: 'target', target: 'chosen' }],
+        },
+      };
+    }
+
     return {
-      charge: {
-        key: 'charge', name: '蓄力', cost: 0, tag: '+1 EN',
-        desc: '获得 1 点能量。',
-        effects: [{ kind: 'energy', amount: 1 }],
-      },
-      defend: {
-        key: 'defend', name: '防御', cost: 0, tag: '免费',
-        desc: `本回合受到的伤害减免 ${c.defendReduce} 点(一次)。`,
-        effects: [{ kind: 'defense', amount: c.defendReduce }],
-      },
-      attack: {
-        key: 'attack', name: '攻击', cost: c.attackCost, tag: `${c.attackCost} EN`,
-        desc: `消耗 ${c.attackCost} 点能量,造成 ${c.attackDmg} 点伤害。`,
-        effects: [{ kind: 'damage', amount: c.attackDmg, target: 'chosen' }],
-      },
+      charge,
+      attack,
+      defend,
       ult: {
         key: 'ult', name: '大招', cost: c.ultCost, tag: `${c.ultCost} EN`,
         desc: `消耗 ${c.ultCost} 点能量,造成 ${c.ultDmg} 点伤害。`,
@@ -56,18 +88,36 @@
     return [(from + 1) % playerCount];
   }
 
+  function resolveChosen(pick, from, playerCount) {
+    const target = pick.target;
+    if (Number.isInteger(target) && target >= 0 && target < playerCount && target !== from) return target;
+    return (from + 1) % playerCount;
+  }
+
+  function takeDamage(normal, piercing, from, to, amount) {
+    let need = amount;
+    const fromNormal = Math.min(normal[from][to], need);
+    normal[from][to] -= fromNormal;
+    need -= fromNormal;
+    if (need > 0) {
+      piercing[from][to] -= Math.min(piercing[from][to], need);
+    }
+  }
+
   /*
-   * 通用结算管线,不枚举招式组合:
-   *   1. 每个行动产生效果(伤害/防御/能量),伤害落到指定目标
-   *   2. 互相攻击的无序对逐点抵消
-   *   3. 汇总每个玩家的受击值
-   *   4. 减去各自防御值,得到扣血值
-   * 新增技能 = 往 actionDefs() 里加效果,结算函数不用改。
+   * 通用结算管线:
+   *   1. 行动产生 damage(normal / piercing)、defense、energy、transfer
+   *   2. 互相攻击按无序对逐点抵消(先普通、后穿透)
+   *   3. 光明/黑暗转移普通伤害;穿透伤害留在原目标
+   *   4. 汇总受击值,减去防御
+   *   5. 特殊护盾:第一次会掉血时消耗并免疫该回合剩余伤害
    */
-  function resolveRound(playerCount, picks, defs) {
+  function resolveRound(playerCount, picks, defs, state = {}) {
     const energyDelta = Array(playerCount).fill(0);
     const defense = Array(playerCount).fill(0);
-    const damage = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
+    const transfers = Array(playerCount).fill(null);
+    const normal = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
+    const piercing = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
 
     for (let from = 0; from < playerCount; from += 1) {
       const pick = picks[from];
@@ -82,8 +132,14 @@
           defense[from] += effect.amount;
         } else if (effect.kind === 'damage') {
           for (const to of resolveTargets(effect, pick, from, playerCount)) {
-            damage[from][to] += effect.amount;
+            if (effect.piercing) piercing[from][to] += effect.amount;
+            else normal[from][to] += effect.amount;
           }
+        } else if (effect.kind === 'transfer') {
+          transfers[from] = {
+            mode: effect.mode,
+            target: effect.mode === 'target' ? resolveChosen(pick, from, playerCount) : null,
+          };
         }
       }
     }
@@ -92,27 +148,88 @@
     const canceledPairs = [];
     for (let i = 0; i < playerCount; i += 1) {
       for (let j = i + 1; j < playerCount; j += 1) {
-        const amount = Math.min(damage[i][j], damage[j][i]);
+        const amount = Math.min(
+          normal[i][j] + piercing[i][j],
+          normal[j][i] + piercing[j][i],
+        );
         if (amount > 0) {
-          damage[i][j] -= amount;
-          damage[j][i] -= amount;
+          takeDamage(normal, piercing, i, j, amount);
+          takeDamage(normal, piercing, j, i, amount);
           canceledPairs.push({ i, j, amount });
         }
       }
     }
 
-    // 依次汇总每个玩家的受击值
+    // 光明/黑暗只转移普通伤害;穿透伤害留在原目标。
+    // 转移进来的伤害不会再次被转移,避免循环。
+    const transferredIn = Array(playerCount).fill(0);
+    const transferred = [];
+    for (let i = 0; i < playerCount; i += 1) {
+      const transfer = transfers[i];
+      if (!transfer) continue;
+
+      if (transfer.mode === 'source') {
+        for (let from = 0; from < playerCount; from += 1) {
+          const amount = normal[from][i];
+          if (amount <= 0) continue;
+          normal[from][i] = 0;
+          transferredIn[from] += amount;
+          transferred.push({ from: i, to: from, amount, via: 'light' });
+        }
+      } else if (transfer.mode === 'target') {
+        let amount = 0;
+        for (let from = 0; from < playerCount; from += 1) {
+          amount += normal[from][i];
+          normal[from][i] = 0;
+        }
+        if (amount > 0 && transfer.target != null && transfer.target !== i) {
+          transferredIn[transfer.target] += amount;
+          transferred.push({ from: i, to: transfer.target, amount, via: 'dark' });
+        } else if (amount > 0) {
+          transferredIn[i] += amount;
+          transferred.push({ from: i, to: i, amount, via: 'dark' });
+        }
+      }
+    }
+
     const incoming = Array.from({ length: playerCount }, (_, to) => {
-      let total = 0;
-      for (let from = 0; from < playerCount; from += 1) total += damage[from][to];
+      let total = transferredIn[to];
+      for (let from = 0; from < playerCount; from += 1) {
+        total += normal[from][to] + piercing[from][to];
+      }
       return total;
     });
 
-    // 受击值减去防御值,得到最终扣血值
     const blocked = incoming.map((amount, index) => Math.min(amount, defense[index]));
     const hpLoss = incoming.map((amount, index) => Math.max(0, amount - defense[index]));
 
-    return { energyDelta, defense, damage, canceledPairs, incoming, blocked, hpLoss };
+    // 特殊护盾:第一次会掉血时消耗,免疫该回合剩余伤害。
+    const shieldAfter = state.shield ? state.shield.slice() : Array(playerCount).fill(false);
+    const shieldUsed = Array(playerCount).fill(false);
+    const shieldBlocked = Array(playerCount).fill(0);
+    for (let i = 0; i < playerCount; i += 1) {
+      if (shieldAfter[i] && hpLoss[i] > 0) {
+        shieldUsed[i] = true;
+        shieldBlocked[i] = hpLoss[i];
+        hpLoss[i] = 0;
+        shieldAfter[i] = false;
+      }
+    }
+
+    return {
+      energyDelta,
+      defense,
+      normal,
+      piercing,
+      canceledPairs,
+      transferred,
+      incoming,
+      blocked,
+      hpLoss,
+      shieldUsed,
+      shieldBlocked,
+      shieldAfter,
+    };
   }
 
   return { actionDefs, attackTotal, resolveRound };

@@ -30,11 +30,16 @@
       </div>
     </header>
 
-    <div class="mode-bar" role="group" aria-label="对战模式">
+    <div class="mode-bar" role="group" aria-label="对战设置">
       <span class="mode-label">模式</span>
       <div class="mode-options" id="modeOptions">
         <button class="mode-btn" type="button" data-mode="pvp" aria-pressed="false">双人</button>
         <button class="mode-btn" type="button" data-mode="cpu" aria-pressed="false">人机</button>
+      </div>
+      <span class="mode-label">版本</span>
+      <div class="mode-options" id="rulesOptions">
+        <button class="mode-btn" type="button" data-rules="minimal" aria-pressed="false">极简</button>
+        <button class="mode-btn" type="button" data-rules="full" aria-pressed="false">完整</button>
       </div>
       <span class="mode-note" id="modeNote"></span>
     </div>
@@ -43,7 +48,10 @@
       <article class="side p1" id="side0">
         <div class="side-head">
           <span class="side-name"><span id="name0">玩家 1</span> <span class="you-mark" id="you0" hidden>你</span></span>
-          <span class="side-tag" id="tag0"></span>
+          <span class="side-badges">
+            <span class="shield-mark" id="shield0" hidden>护盾</span>
+            <span class="side-tag" id="tag0"></span>
+          </span>
         </div>
         <div class="stat-row">
           <span class="stat-label">HP</span>
@@ -60,7 +68,10 @@
       <article class="side p2" id="side1">
         <div class="side-head">
           <span class="side-name"><span id="name1">玩家 2</span> <span class="you-mark" id="you1" hidden>你</span></span>
-          <span class="side-tag" id="tag1"></span>
+          <span class="side-badges">
+            <span class="shield-mark" id="shield1" hidden>护盾</span>
+            <span class="side-tag" id="tag1"></span>
+          </span>
         </div>
         <div class="stat-row">
           <span class="stat-label">HP</span>
@@ -102,7 +113,7 @@
       <summary>规则</summary>
       <div class="panel-body">
         <dl class="rules" id="rulesBody"></dl>
-        <ul class="rule-notes">
+        <ul class="rule-notes" id="rulesNotes">
           <li>两台设备各自秘密选行动,服务器收齐后同时结算。</li>
           <li>先汇总每个玩家受到的伤害;同时攻击同一目标的伤害叠加。</li>
           <li>互相攻击的两名玩家,伤害逐点抵消,只发生在双方之间。</li>
@@ -118,8 +129,8 @@
         <form class="cfg-grid" id="cfgForm">
           <label class="cfg-field"><span>血量</span><input type="number" id="cfgHp" min="1" max="20" step="1" value="1"></label>
           <label class="cfg-field"><span>初始能量</span><input type="number" id="cfgEnergy" min="0" max="20" step="1" value="0"></label>
-          <label class="cfg-field"><span>大招耗能</span><input type="number" id="cfgUltCost" min="1" max="20" step="1" value="5"></label>
-          <label class="cfg-field"><span>大招伤害</span><input type="number" id="cfgUltDmg" min="1" max="10" step="1" value="2"></label>
+          <label class="cfg-field" id="cfgUltCostField"><span>大招耗能</span><input type="number" id="cfgUltCost" min="1" max="20" step="1" value="5"></label>
+          <label class="cfg-field" id="cfgUltDmgField"><span>大招伤害</span><input type="number" id="cfgUltDmg" min="1" max="10" step="1" value="2"></label>
           <button class="btn" type="submit">应用并重开</button>
         </form>
       </div>

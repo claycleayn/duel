@@ -191,6 +191,8 @@ test('cpu: bot locks privately, resolves, and re-picks each round', async (t) =>
   assert.deepEqual(initial.locked, [false, true]);
   assert.equal(initial.reveal, null);
   assert.equal(initial.yourPick, null);
+  assert.equal(initial.ruleset, 'full');
+  assert.deepEqual(initial.shield, [true, true]);
 
   await pick(srv.port, 'human', 'charge');
   const reveal = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
@@ -222,12 +224,25 @@ test('cpu: bot locks privately, resolves, and re-picks each round', async (t) =>
   const cpuHost = await waitForSince(h, markCpu, (m) => m.mode === 'cpu' && m.locked[1] === true);
   assert.deepEqual(cpuHost.locked, [false, true]);
 
-  const p = await sse(srv.port, 'token=pvp&seat=1&cpu=0');
+  const markBackPvp = h.messages.length;
+  const backPvp = await request(srv.port, '/mode', 'POST', { token: 'human', mode: 'pvp' });
+  assert.equal(backPvp.status, 200);
+  await waitForSince(h, markBackPvp, (m) => m.mode === 'pvp');
+
+  const p = await sse(srv.port, 'token=pvp&seat=1');
   clients.push(p);
   const pvp = await waitFor(p, (m) => m.mode === 'pvp' && m.you === 1);
   assert.equal(pvp.mode, 'pvp');
   assert.equal(pvp.round, 1);
   assert.deepEqual(pvp.hp, [1, 1]);
+
+  const rulesDenied = await request(srv.port, '/ruleset', 'POST', { token: 'pvp', ruleset: 'full' });
+  assert.equal(rulesDenied.status, 403);
+  const markRules = h.messages.length;
+  const switchRules = await request(srv.port, '/ruleset', 'POST', { token: 'human', ruleset: 'minimal' });
+  assert.equal(switchRules.status, 200);
+  const minimal = await waitForSince(h, markRules, (m) => m.ruleset === 'minimal');
+  assert.deepEqual(minimal.shield, [false, false]);
 });
 
 test('room token gates page and api', async (t) => {

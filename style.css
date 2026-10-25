@@ -609,6 +609,17 @@
     opacity: .75;
   }
   .side.offline { opacity: .55; }
+  .side-badges { display: flex; align-items: center; gap: 6px; }
+  .shield-mark {
+    padding: 3px 7px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: .06em;
+    color: var(--side-color);
+    white-space: nowrap;
+  }
   .mode-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .mode-label { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .14em; color: var(--muted); }
   .mode-options { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; }
