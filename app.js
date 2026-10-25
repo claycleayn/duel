@@ -20,15 +20,22 @@
     defend: '<path d="M12 3 5 6v5c0 4.2 2.8 7.6 7 9 4.2-1.4 7-4.8 7-9V6l-7-3Z"/>',
     attack: '<path d="M5 19 19 5M13 5h6v6"/>',
     ult: '<path d="M12 2.5 14.7 9l6.8.6-5.2 4.5 1.6 6.6L12 17.2 6.1 20.7l1.6-6.6L2.5 9.6 9.3 9 12 2.5Z"/>',
+    double: '<path d="M4 16 15 5M9 20 20 9"/>',
+    water: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>',
+    light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+    dark: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/>',
+    escape: '<path d="M5 7l5 5-5 5M12 7l5 5-5 5"/>',
   };
 
   const view = {
     online: false,
     you: null,
     mode: 'pvp',
+    ruleset: 'minimal',
     cfg: { ...DEFAULTS },
     hp: [1, 1],
     en: [0, 0],
+    shield: [false, false],
     round: 1,
     phase: 'pick',
     winner: null,
@@ -43,6 +50,7 @@
   const preferredSeat = params.get('seat') === '0' ? 0 : params.get('seat') === '1' ? 1 : null;
   const room = params.get('room') || '';
   const cpuParam = params.get('cpu');
+  const rulesParam = params.get('rules');
   const FILE_MODE = window.location.protocol === 'file:';
   let token = '';
 
@@ -104,7 +112,7 @@
   }
 
   function currentDefs() {
-    return actionDefs(view.cfg);
+    return actionDefs(view.cfg, view.ruleset);
   }
 
   function isMyTurn() {
@@ -158,7 +166,8 @@
   function renderModeBar() {
     const host = view.you === 0;
     document.querySelectorAll('.mode-btn').forEach((btn) => {
-      const active = view.mode === btn.dataset.mode;
+      const isRules = btn.dataset.rules != null;
+      const active = isRules ? view.ruleset === btn.dataset.rules : view.mode === btn.dataset.mode;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', String(active));
       btn.disabled = !view.online || !host;
@@ -195,6 +204,7 @@
       buildPips($('en' + i), enSlots, Math.min(view.en[i], enSlots), 'en');
       $('hpNum' + i).textContent = view.hp[i];
       $('enNum' + i).textContent = view.en[i];
+      $('shield' + i).hidden = !view.shield[i];
     }
   }
 
@@ -269,11 +279,39 @@
   }
 
   function renderRules() {
+    if (view.ruleset === 'full') {
+      $('rulesBody').innerHTML = `
+        <dt>蓄力</dt><dd>获得 1 点能量;不刷新护盾。</dd>
+        <dt>攻击</dt><dd>消耗 ${view.cfg.attackCost} 点能量,造成 ${view.cfg.attackDmg} 点伤害。</dd>
+        <dt>防御</dt><dd>本回合受到的伤害减免 ${view.cfg.defendReduce} 点(一次)。</dd>
+        <dt>双斩</dt><dd>消耗 4 点能量,造成 2 点伤害。</dd>
+        <dt>水枪</dt><dd>消耗 3 点能量,造成 1 点穿透伤害;穿透只无视光明/黑暗与逃脱。</dd>
+        <dt>光明</dt><dd>转移受到的普通伤害给攻击者;成功转移耗 4 点,没有转移任何伤害只耗 1 点。</dd>
+        <dt>黑暗</dt><dd>转移受到的普通伤害给指定目标;成功转移耗 5 点,没有转移任何伤害只耗 1 点。</dd>
+        <dt>逃脱</dt><dd>消耗 1 点能量,免疫本回合所有普通伤害;穿透伤害仍然命中。</dd>
+      `;
+      $('rulesNotes').innerHTML = `
+        <li>每人开局 1 层特殊护盾;第一次会掉血时消耗,免疫该回合剩余伤害。</li>
+        <li>双方秘密选招、同时结算;互相攻击的伤害逐点抵消,再汇总受击值减防御。</li>
+        <li>水枪的穿透无视光明/黑暗与逃脱;防御和特殊护盾仍然有效。</li>
+        <li>光明/黑暗只转移普通伤害;没有转移任何伤害时只消耗 1 点能量;转移来的伤害不会再次转移。</li>
+        <li>血量归零即败;2 人局目标固定为对手。</li>
+      `;
+      return;
+    }
+
     $('rulesBody').innerHTML = `
       <dt>蓄力</dt><dd>获得 1 点能量。</dd>
-      <dt>防御</dt><dd>本回合受到的伤害减免 ${view.cfg.defendReduce} 点(一次)。</dd>
       <dt>攻击</dt><dd>消耗 ${view.cfg.attackCost} 点能量,造成 ${view.cfg.attackDmg} 点伤害。</dd>
+      <dt>防御</dt><dd>本回合受到的伤害减免 ${view.cfg.defendReduce} 点(一次)。</dd>
       <dt>大招</dt><dd>消耗 ${view.cfg.ultCost} 点能量,造成 ${view.cfg.ultDmg} 点伤害。</dd>
+    `;
+    $('rulesNotes').innerHTML = `
+      <li>所有人选好行动后同时结算,不是逐人行动。</li>
+      <li>先汇总每个玩家受到的伤害;同时攻击同一目标的伤害叠加。</li>
+      <li>互相攻击的两名玩家,伤害逐点抵消,只发生在双方之间。</li>
+      <li>每个玩家用受击值减去自己的防御值,得到最终扣血值。</li>
+      <li>能量无上限;血量降到 0 即败。当前 2 人局中目标固定为对手。</li>
     `;
   }
 
@@ -282,6 +320,9 @@
     $('cfgEnergy').value = view.cfg.startEnergy;
     $('cfgUltCost').value = view.cfg.ultCost;
     $('cfgUltDmg').value = view.cfg.ultDmg;
+    const full = view.ruleset === 'full';
+    $('cfgUltCostField').hidden = full;
+    $('cfgUltDmgField').hidden = full;
   }
 
   function renderAll() {
@@ -356,6 +397,7 @@
 
     view.hp = msg.hp.slice();
     view.en = msg.en.slice();
+    view.shield = msg.shield || view.shield;
     renderCards();
     renderControls();
     renderLog();
@@ -366,6 +408,12 @@
     if (result.blocked[0]) flashGuard(0);
     if (result.blocked[1]) flashGuard(1);
     if (result.blocked[0] || result.blocked[1]) beep(420, 0.07, 'triangle', 0.025);
+    if (result.shieldUsed[0]) flashGuard(0);
+    if (result.shieldUsed[1]) flashGuard(1);
+    if (result.shieldUsed[0] || result.shieldUsed[1]) beep(500, 0.09, 'triangle', 0.03);
+    if (result.escaped[0]) flashGuard(0);
+    if (result.escaped[1]) flashGuard(1);
+    if (result.escaped[0] || result.escaped[1]) beep(620, 0.08, 'triangle', 0.03);
     if (result.hpLoss[0]) flashSide(0, result.hpLoss[0]);
     if (result.hpLoss[1]) flashSide(1, result.hpLoss[1]);
     if (result.hpLoss[0] || result.hpLoss[1]) beep(90, 0.18, 'sine', 0.06);
@@ -451,6 +499,20 @@
     beep(440, 0.06, 'triangle', 0.03);
   }
 
+  async function switchRuleset(ruleset) {
+    if (view.you !== 0 || view.ruleset === ruleset) return;
+    const result = await post('/ruleset', { token, ruleset });
+    if (!result.ok) {
+      $('modeNote').textContent = '切换失败,请重试';
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('rules', ruleset);
+    url.searchParams.set('seat', '0');
+    window.history.replaceState(null, '', url);
+    beep(440, 0.06, 'triangle', 0.03);
+  }
+
   async function lockPick() {
     if (!isMyTurn() || !selected) return;
     const action = selected;
@@ -471,6 +533,7 @@
     view.online = true;
     view.you = msg.you;
     view.mode = msg.mode || 'pvp';
+    view.ruleset = msg.ruleset || 'minimal';
     view.connected = msg.connected;
     view.locked = msg.locked;
     view.yourPick = msg.yourPick;
@@ -478,7 +541,7 @@
     view.winner = msg.winner;
     view.round = msg.round;
 
-    const cfgKey = JSON.stringify(msg.cfg);
+    const cfgKey = JSON.stringify({ cfg: msg.cfg, ruleset: msg.ruleset });
     if (cfgKey !== lastCfgKey) {
       lastCfgKey = cfgKey;
       view.cfg = msg.cfg;
@@ -499,6 +562,7 @@
         lastRevealId = msg.reveal.id;
         view.hp = msg.reveal.before.hp.slice();
         view.en = msg.reveal.before.en.slice();
+        view.shield = msg.reveal.before.shield ? msg.reveal.before.shield.slice() : view.shield;
         renderHeader();
         renderCards();
         renderControls();
@@ -516,6 +580,7 @@
     view.phase = msg.phase;
     view.hp = msg.hp.slice();
     view.en = msg.en.slice();
+    view.shield = msg.shield || [false, false];
     view.reveal = msg.reveal;
 
     if (roundChanged || msg.phase !== 'pick') selected = null;
@@ -568,13 +633,19 @@
       switchMode(btn.dataset.mode);
     });
 
+    $('rulesOptions').addEventListener('click', (event) => {
+      const btn = event.target.closest('button.mode-btn');
+      if (!btn || btn.disabled) return;
+      switchRuleset(btn.dataset.rules);
+    });
+
     document.addEventListener('keydown', (event) => {
       if (event.target.closest && event.target.closest('input, textarea, select')) return;
       if (event.key === 'Enter' && !$('lockBtn').disabled) {
         lockPick();
         return;
       }
-      const index = ['1', '2', '3', '4'].indexOf(event.key);
+      const index = ['1', '2', '3', '4', '5', '6', '7'].indexOf(event.key);
       if (index >= 0) {
         const key = Object.keys(currentDefs())[index];
         if (key) selectAction(key);
@@ -592,7 +663,8 @@
 
   if (!FILE_MODE) {
     const cpuQuery = cpuParam === null ? '' : `&cpu=${encodeURIComponent(cpuParam)}`;
-    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
+    const rulesQuery = rulesParam === null ? '' : `&rules=${encodeURIComponent(rulesParam)}`;
+    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${rulesQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
     const source = new EventSource(eventsUrl);
 
     source.onopen = () => {

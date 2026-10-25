@@ -28,8 +28,10 @@ const DEFAULTS = {
 const game = {
   cfg: { ...DEFAULTS },
   mode: 'pvp', // pvp | cpu
+  ruleset: 'full', // minimal | full
   hp: [1, 1],
   en: [0, 0],
+  shield: [true, true],
   round: 1,
   phase: 'pick', // pick | reveal | over
   picks: [null, null],
@@ -48,6 +50,7 @@ function resetGame() {
   game.timer = null;
   game.hp = [game.cfg.hp, game.cfg.hp];
   game.en = [game.cfg.startEnergy, game.cfg.startEnergy];
+  game.shield = [game.ruleset === 'full', game.ruleset === 'full'];
   game.round = 1;
   game.phase = 'pick';
   game.picks = [null, null];
@@ -106,8 +109,8 @@ function refreshSeats() {
 
 function botPick() {
   if (game.mode !== 'cpu' || game.phase !== 'pick' || game.picks[1]) return;
-  const defs = actionDefs(game.cfg);
-  const pick = chooseBotPick({ hp: game.hp, en: game.en, log: game.log, round: game.round }, defs);
+  const defs = actionDefs(game.cfg, game.ruleset);
+  const pick = chooseBotPick({ hp: game.hp, en: game.en, shield: game.shield, log: game.log, round: game.round }, defs);
   if (!pick || !defs[pick.action] || game.en[1] < defs[pick.action].cost) {
     game.picks[1] = { action: 'charge', target: 0 };
     return;
@@ -126,15 +129,25 @@ function setMode(mode) {
   botPick();
 }
 
+function setRuleset(ruleset) {
+  if (ruleset !== 'minimal' && ruleset !== 'full') return;
+  if (game.ruleset === ruleset) return;
+  game.ruleset = ruleset;
+  resetGame();
+  botPick();
+}
+
 function stateFor(conn) {
   const seat = conn.seat;
   return {
     type: 'state',
     you: seat,
     mode: game.mode,
+    ruleset: game.ruleset,
     cfg: game.cfg,
     hp: game.hp,
     en: game.en,
+    shield: game.shield,
     round: game.round,
     phase: game.phase,
     winner: game.winner,
@@ -176,6 +189,21 @@ function makeLogEntry(round, picks, result, defs) {
     if (result.blocked[i]) bits.push(`${label(i)} 防御 −<b>${result.blocked[i]}</b>`);
   }
   for (let i = 0; i < 2; i += 1) {
+    if (result.shieldBlocked[i]) bits.push(`${label(i)} 护盾抵挡 <b>${result.shieldBlocked[i]}</b>`);
+  }
+  for (const move of result.transferred || []) {
+    bits.push(`${label(move.from)} ${move.via === 'light' ? '光明' : '黑暗'}转移 <b>${move.amount}</b>`);
+  }
+  for (let i = 0; i < 2; i += 1) {
+    if (result.escaped[i]) bits.push(`${label(i)} 逃脱`);
+  }
+  for (let i = 0; i < 2; i += 1) {
+    const key = picks[i].action;
+    if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
+      bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
+    }
+  }
+  for (let i = 0; i < 2; i += 1) {
     if (result.hpLoss[i]) bits.push(`${label(i)} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
   }
   const text = bits.length ? bits.join(' · ') : '无人受伤';
@@ -191,15 +219,16 @@ function makeLogEntry(round, picks, result, defs) {
 }
 
 function resolvePicks() {
-  const defs = actionDefs(game.cfg);
+  const defs = actionDefs(game.cfg, game.ruleset);
   const picks = game.picks.slice();
-  const result = resolveRound(2, picks, defs);
-  const before = { hp: game.hp.slice(), en: game.en.slice() };
+  const result = resolveRound(2, picks, defs, { shield: game.shield });
+  const before = { hp: game.hp.slice(), en: game.en.slice(), shield: game.shield.slice() };
 
   for (let i = 0; i < 2; i += 1) {
     game.en[i] += result.energyDelta[i];
     game.hp[i] = Math.max(0, game.hp[i] - result.hpLoss[i]);
   }
+  game.shield = result.shieldAfter;
 
   const entry = makeLogEntry(game.round, picks, result, defs);
   game.log.unshift(entry);
@@ -303,8 +332,14 @@ function handleEvents(req, res, url) {
   const preferred = seatParam === '0' ? 0 : seatParam === '1' ? 1 : null;
 
   const cpuParam = url.searchParams.get('cpu');
-  if (cpuParam === '1') setMode('cpu');
-  else if (cpuParam === '0') setMode('pvp');
+  const rulesParam = url.searchParams.get('rules');
+  const isHost = preferred === 0 && (seatOfToken(token) === 0 || seatAvailable(0));
+  if (isHost) {
+    if (cpuParam === '1') setMode('cpu');
+    else if (cpuParam === '0') setMode('pvp');
+    if (rulesParam === 'full') setRuleset('full');
+    else if (rulesParam === 'minimal') setRuleset('minimal');
+  }
 
   const old = connections.get(token);
   if (old) {
@@ -371,7 +406,7 @@ function handlePick(req, res) {
       return;
     }
 
-    const defs = actionDefs(game.cfg);
+    const defs = actionDefs(game.cfg, game.ruleset);
     if (typeof body.action !== 'string' || !Object.prototype.hasOwnProperty.call(defs, body.action)) {
       respond(res, 400, { ok: false, error: 'unknown action' });
       return;
@@ -471,6 +506,29 @@ function handleMode(req, res) {
   });
 }
 
+function handleRuleset(req, res) {
+  readBody(req, res, (body) => {
+    if (!roomOkBody(body)) {
+      respond(res, 403, { ok: false, error: 'forbidden' });
+      return;
+    }
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.seat !== 0) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    if (body.ruleset !== 'minimal' && body.ruleset !== 'full') {
+      respond(res, 400, { ok: false, error: 'bad ruleset' });
+      return;
+    }
+    setRuleset(body.ruleset);
+    broadcast();
+    console.log('[ruleset]', body.ruleset);
+    respond(res, 200, { ok: true, ruleset: body.ruleset });
+  });
+}
+
 const STATIC = {
   '/engine.js': ['engine.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -521,12 +579,16 @@ const server = http.createServer((req, res) => {
     handleMode(req, res);
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/ruleset') {
+    handleRuleset(req, res);
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/health') {
     if (!roomOk(url)) {
       notFound(res);
       return;
     }
-    respond(res, 200, { ok: true, mode: game.mode, phase: game.phase, round: game.round, seats: game.picks.map(Boolean) });
+    respond(res, 200, { ok: true, mode: game.mode, ruleset: game.ruleset, phase: game.phase, round: game.round, shield: game.shield, seats: game.picks.map(Boolean) });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/favicon.ico') {
@@ -552,23 +614,24 @@ function lanAddresses() {
   return addresses;
 }
 
-function gameLink(host, seat, cpu) {
+function gameLink(host, seat, cpu, rules) {
   const parts = [];
   if (ACCESS_TOKEN) parts.push(`room=${encodeURIComponent(ACCESS_TOKEN)}`);
   parts.push(`seat=${seat}`);
   if (cpu !== null && cpu !== undefined) parts.push(`cpu=${cpu ? 1 : 0}`);
+  if (rules) parts.push(`rules=${rules}`);
   return `http://${host}:${PORT}/?${parts.join('&')}`;
 }
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('极简决斗 server');
-  console.log(`本机:   P1 ${gameLink('localhost', 0, 0)}`);
-  console.log(`        P2 ${gameLink('localhost', 1, 0)}`);
-  console.log(`        CPU ${gameLink('localhost', 0, 1)}`);
+  console.log(`本机:   P1 ${gameLink('localhost', 0, 0, 'full')}`);
+  console.log(`        P2 ${gameLink('localhost', 1, null, null)}`);
+  console.log(`        CPU ${gameLink('localhost', 0, 1, 'full')}`);
   for (const address of lanAddresses()) {
-    console.log(`局域网: P1 ${gameLink(address, 0, 0)}`);
-    console.log(`        P2 ${gameLink(address, 1, 0)}`);
-    console.log(`        CPU ${gameLink(address, 0, 1)}`);
+    console.log(`局域网: P1 ${gameLink(address, 0, 0, 'full')}`);
+    console.log(`        P2 ${gameLink(address, 1, null, null)}`);
+    console.log(`        CPU ${gameLink(address, 0, 1, 'full')}`);
   }
   if (ACCESS_TOKEN) console.log('房间令牌已启用:链接里带密钥,不要公开分享。');
   console.log('手机与电脑需能互相访问这个端口。Ctrl+C 停止。');
