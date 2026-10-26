@@ -198,8 +198,10 @@
     } else if (!view.online) {
       pill.textContent = '连接中…';
     } else if (typeof view.you === 'number') {
-      pill.textContent = playerName(view.you);
+      pill.textContent = view.host ? `${playerName(view.you)} · 房主` : playerName(view.you);
       pill.classList.add(`p${view.you + 1}`);
+    } else if (view.host) {
+      pill.textContent = '房主 · 观众';
     } else {
       pill.textContent = '观众';
     }
@@ -238,7 +240,7 @@
     });
     const note = $('modeNote');
     if (!view.online) note.textContent = '';
-    else note.textContent = host ? '点击座位切换电脑/玩家;切换会重开' : '只有房主可以切换';
+    else note.textContent = host ? '你是房主;点击座位切换电脑/玩家;切换会重开' : '只有房主(P1)可以切换';
   }
 
   function renderCards() {
