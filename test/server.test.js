@@ -455,3 +455,31 @@ test('4p 2v2: eliminating both enemies wins', async (t) => {
   const over = await waitFor(h, (m) => m.phase === 'over');
   assert.equal(over.winner, 'team0');
 });
+
+test('bot-only rounds continue after all humans die', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const h = await sse(srv.port, 'token=h&seat=0&players=3&bots=1,2&rules=minimal');
+  clients.push(h);
+  await waitFor(h, (m) => m.playerCount === 3 && m.bots[1] && m.bots[2]);
+
+  const mark = h.messages.length;
+  const cfg = await request(srv.port, '/config', 'POST', { token: 'h', hp: 1, startEnergy: 5, ultCost: 5, ultDmg: 2 });
+  assert.equal(cfg.status, 200);
+  await waitForSince(h, mark, (m) => m.en[0] === 5 && m.phase === 'pick');
+
+  await pick(srv.port, 'h', 'charge');
+  const reveal1 = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.equal(reveal1.hp[0], 0);
+  assert.equal(reveal1.winner, null);
+
+  // No human is alive now; the server must keep resolving the bots' rounds.
+  const reveal2 = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.ok(reveal2.reveal);
+});

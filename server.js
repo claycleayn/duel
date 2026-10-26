@@ -171,6 +171,17 @@ function updateMode() {
   game.mode = activeBots().some(Boolean) ? 'cpu' : 'pvp';
 }
 
+function allAlivePicked() {
+  const count = game.playerCount;
+  let alive = 0;
+  for (let i = 0; i < count; i += 1) {
+    if (game.hp[i] <= 0) continue;
+    alive += 1;
+    if (!game.picks[i]) return false;
+  }
+  return alive > 0;
+}
+
 function botPickAll() {
   if (game.phase !== 'pick') return;
   const defs = actionDefs(game.cfg, game.ruleset);
@@ -464,6 +475,10 @@ function resolvePicks() {
       game.phase = 'pick';
       game.reveal = null;
       botPickAll();
+      if (allAlivePicked()) {
+        resolvePicks();
+        return;
+      }
     }
     broadcast();
   }, REVEAL_MS);
