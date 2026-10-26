@@ -8,7 +8,11 @@ const { actionDefs, resolveRound } = require('./engine.js');
 const { chooseBotPick } = require('./bot.js');
 
 const PORT = Number(process.env.PORT) || 3000;
-const ACCESS_TOKEN = (process.env.ACCESS_TOKEN || '').trim();
+const ROOM_TOKENS = (process.env.ACCESS_TOKENS || process.env.ACCESS_TOKEN || '')
+  .split(',')
+  .map((token) => token.trim())
+  .filter(Boolean);
+if (ROOM_TOKENS.length === 0) ROOM_TOKENS.push('');
 const ROOT = __dirname;
 const REVEAL_MS = Math.max(100, Number(process.env.REVEAL_MS) || 2400);
 const MAX_ROUNDS = 200;
@@ -26,7 +30,46 @@ const DEFAULTS = {
   defendReduce: 1,
 };
 
-const game = {
+function cleanToken(raw) {
+  if (typeof raw !== 'string') return null;
+  const token = raw.trim().slice(0, 128);
+  return /^[A-Za-z0-9._:-]+$/.test(token) ? token : null;
+}
+
+function readBody(req, res, callback) {
+  let body = '';
+  let size = 0;
+  req.on('data', (chunk) => {
+    size += chunk.length;
+    if (size > 16384) {
+      req.destroy();
+      return;
+    }
+    body += chunk;
+  });
+  req.on('end', () => {
+    try {
+      callback(JSON.parse(body || '{}'));
+    } catch (error) {
+      respond(res, 400, { ok: false, error: 'bad json' });
+    }
+  });
+}
+
+function respond(res, status, payload) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(payload));
+}
+
+function notFound(res) {
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('not found');
+}
+
+function createRoom(accessToken) {
+  const tag = accessToken ? accessToken.slice(0, 6) : 'open';
+
+  const game = {
   cfg: { ...DEFAULTS },
   mode: 'pvp', // pvp | cpu
   ruleset: 'full', // minimal | full
@@ -314,59 +357,10 @@ function resolvePicks() {
 
   broadcast();
   const plain = entry.text.replace(/<[^>]+>/g, '');
-  console.log(`[round ${game.round}] ${picks.map((pick, i) => (pick ? `P${i + 1} ${pick.action}` : `P${i + 1} —`)).join(' vs ')} · ${plain}`);
-}
-
-function cleanToken(raw) {
-  if (typeof raw !== 'string') return null;
-  const token = raw.trim().slice(0, 128);
-  return /^[A-Za-z0-9._:-]+$/.test(token) ? token : null;
-}
-
-function readBody(req, res, callback) {
-  let body = '';
-  let size = 0;
-  req.on('data', (chunk) => {
-    size += chunk.length;
-    if (size > 16384) {
-      req.destroy();
-      return;
-    }
-    body += chunk;
-  });
-  req.on('end', () => {
-    try {
-      callback(JSON.parse(body || '{}'));
-    } catch (error) {
-      respond(res, 400, { ok: false, error: 'bad json' });
-    }
-  });
-}
-
-function respond(res, status, payload) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(payload));
-}
-
-function roomOk(url) {
-  return !ACCESS_TOKEN || url.searchParams.get('room') === ACCESS_TOKEN;
-}
-
-function roomOkBody(body) {
-  return !ACCESS_TOKEN || body.room === ACCESS_TOKEN;
-}
-
-function notFound(res) {
-  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('not found');
+  console.log(`[round ${tag} ${game.round}] ${picks.map((pick, i) => (pick ? `P${i + 1} ${pick.action}` : `P${i + 1} —`)).join(' vs ')} · ${plain}`);
 }
 
 function handleEvents(req, res, url) {
-  if (!roomOk(url)) {
-    notFound(res);
-    return;
-  }
-
   const token = cleanToken(url.searchParams.get('token'));
   if (!token) {
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -425,21 +419,17 @@ function handleEvents(req, res, url) {
     clearInterval(conn.heartbeat);
     if (connections.get(token) === conn) {
       connections.delete(token);
-      console.log(`[conn] ${token.slice(0, 10)} 断开`);
+      console.log(`[conn ${tag}] ${token.slice(0, 10)} 断开`);
       broadcast();
     }
   });
 
-  console.log(`[conn] ${token.slice(0, 10)} → ${seat === 'spectator' ? '观众' : `P${seat + 1}`}`);
+  console.log(`[conn ${tag}] ${token.slice(0, 10)} → ${seat === 'spectator' ? '观众' : `P${seat + 1}`}`);
   broadcast();
 }
 
 function handlePick(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn || typeof conn.seat !== 'number') {
@@ -499,10 +489,6 @@ function handlePick(req, res) {
 
 function handleRestart(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn) {
@@ -523,10 +509,6 @@ function handleRestart(req, res) {
 
 function handleConfig(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn) {
@@ -554,10 +536,6 @@ function handleConfig(req, res) {
 
 function handleMode(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn || conn.seat !== 0) {
@@ -577,10 +555,6 @@ function handleMode(req, res) {
 
 function handleRuleset(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn || conn.seat !== 0) {
@@ -600,10 +574,6 @@ function handleRuleset(req, res) {
 
 function handlePlayerCount(req, res) {
   readBody(req, res, (body) => {
-    if (!roomOkBody(body)) {
-      respond(res, 403, { ok: false, error: 'forbidden' });
-      return;
-    }
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
     if (!conn || conn.seat !== 0) {
@@ -620,6 +590,28 @@ function handlePlayerCount(req, res) {
     console.log('[players]', count);
     respond(res, 200, { ok: true, playerCount: count });
   });
+}
+
+  return {
+    token: accessToken,
+    handleEvents,
+    handlePick,
+    handleRestart,
+    handleConfig,
+    handleMode,
+    handleRuleset,
+    handlePlayerCount,
+    health: () => ({
+      ok: true,
+      mode: game.mode,
+      ruleset: game.ruleset,
+      playerCount: game.playerCount,
+      phase: game.phase,
+      round: game.round,
+      shield: game.shield,
+      seats: game.picks.map(Boolean),
+    }),
+  };
 }
 
 const STATIC = {
@@ -641,11 +633,22 @@ function serveStatic(res, file, type) {
   });
 }
 
+const rooms = new Map();
+for (const token of ROOM_TOKENS) rooms.set(token, createRoom(token));
+
+function resolveRoom(url) {
+  const key = url.searchParams.get('room');
+  if (key !== null && rooms.has(key)) return rooms.get(key);
+  if (rooms.has('') && (key === null || key === '')) return rooms.get('');
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const room = resolveRoom(url);
 
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-    if (!roomOk(url)) {
+    if (!room) {
       notFound(res);
       return;
     }
@@ -653,39 +656,31 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'GET' && url.pathname === '/events') {
-    handleEvents(req, res, url);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/pick') {
-    handlePick(req, res);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/restart') {
-    handleRestart(req, res);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/config') {
-    handleConfig(req, res);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/mode') {
-    handleMode(req, res);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/ruleset') {
-    handleRuleset(req, res);
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/playercount') {
-    handlePlayerCount(req, res);
-    return;
-  }
-  if (req.method === 'GET' && url.pathname === '/health') {
-    if (!roomOk(url)) {
+    if (!room) {
       notFound(res);
       return;
     }
-    respond(res, 200, { ok: true, mode: game.mode, ruleset: game.ruleset, playerCount: game.playerCount, phase: game.phase, round: game.round, shield: game.shield, seats: game.picks.map(Boolean) });
+    room.handleEvents(req, res, url);
+    return;
+  }
+  if (req.method === 'POST') {
+    if (!room) {
+      respond(res, 403, { ok: false, error: 'forbidden' });
+      return;
+    }
+    if (url.pathname === '/pick') { room.handlePick(req, res); return; }
+    if (url.pathname === '/restart') { room.handleRestart(req, res); return; }
+    if (url.pathname === '/config') { room.handleConfig(req, res); return; }
+    if (url.pathname === '/mode') { room.handleMode(req, res); return; }
+    if (url.pathname === '/ruleset') { room.handleRuleset(req, res); return; }
+    if (url.pathname === '/playercount') { room.handlePlayerCount(req, res); return; }
+  }
+  if (req.method === 'GET' && url.pathname === '/health') {
+    if (!room) {
+      notFound(res);
+      return;
+    }
+    respond(res, 200, room.health());
     return;
   }
   if (req.method === 'GET' && url.pathname === '/favicon.ico') {
@@ -711,9 +706,9 @@ function lanAddresses() {
   return addresses;
 }
 
-function gameLink(host, seat, cpu, rules) {
+function gameLink(host, roomToken, seat, cpu, rules) {
   const parts = [];
-  if (ACCESS_TOKEN) parts.push(`room=${encodeURIComponent(ACCESS_TOKEN)}`);
+  if (roomToken) parts.push(`room=${encodeURIComponent(roomToken)}`);
   parts.push(`seat=${seat}`);
   if (cpu !== null && cpu !== undefined) parts.push(`cpu=${cpu ? 1 : 0}`);
   if (rules) parts.push(`rules=${rules}`);
@@ -722,19 +717,19 @@ function gameLink(host, seat, cpu, rules) {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('极简决斗 server');
-  console.log(`本机:   P1 ${gameLink('localhost', 0, 0, 'full')}`);
-  console.log(`        P2 ${gameLink('localhost', 1, null, null)}`);
-  console.log(`        P3 ${gameLink('localhost', 2, null, null)}`);
-  console.log(`        P4 ${gameLink('localhost', 3, null, null)}`);
-  console.log(`        CPU ${gameLink('localhost', 0, 1, 'full')}`);
-  for (const address of lanAddresses()) {
-    console.log(`局域网: P1 ${gameLink(address, 0, 0, 'full')}`);
-    console.log(`        P2 ${gameLink(address, 1, null, null)}`);
-    console.log(`        P3 ${gameLink(address, 2, null, null)}`);
-    console.log(`        P4 ${gameLink(address, 3, null, null)}`);
-    console.log(`        CPU ${gameLink(address, 0, 1, 'full')}`);
-  }
-  if (ACCESS_TOKEN) console.log('房间令牌已启用:链接里带密钥,不要公开分享。');
+  const hosts = ['localhost', ...lanAddresses()];
+  ROOM_TOKENS.forEach((token, index) => {
+    console.log(`\n房间 ${index + 1}${token ? ` (${token.slice(0, 6)}…)` : ' (开放)'}`);
+    for (const host of hosts) {
+      console.log(`  ${host}:`);
+      console.log(`    P1  ${gameLink(host, token, 0, 0, 'full')}`);
+      console.log(`    P2  ${gameLink(host, token, 1, null, null)}`);
+      console.log(`    P3  ${gameLink(host, token, 2, null, null)}`);
+      console.log(`    P4  ${gameLink(host, token, 3, null, null)}`);
+      console.log(`    CPU ${gameLink(host, token, 0, 1, 'full')}`);
+    }
+  });
+  if (ROOM_TOKENS.some(Boolean)) console.log('\n房间令牌已启用:链接里带密钥,不要公开分享。');
   console.log('手机与电脑需能互相访问这个端口。Ctrl+C 停止。');
 });
 

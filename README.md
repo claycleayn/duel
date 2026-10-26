@@ -61,8 +61,16 @@ node server.js
 
 ## 公网部署（可选）
 
+单房间:
+
 ```bash
 ACCESS_TOKEN=<随机串> PORT=34871 node server.js
 ```
 
-链接形如 `http://<公网IP>:34871/?room=<随机串>&seat=0&cpu=0&rules=full`（`seat=1/2/3` 给其他玩家，最多 4 人）。人机对战用页面顶部的模式切换（玩家 1 可切），或把 `cpu=0` 换成 `cpu=1`；人数用页面切换或 `players=3/4`（房主）；版本用页面切换或 `rules=minimal` / `rules=full`。建议用 systemd user 服务常驻，并在云安全组和主机防火墙放行该端口。不带 `room` 的页面和 API 请求会返回 404。
+多房间（同一端口，按 token 隔离）:
+
+```bash
+ACCESS_TOKENS=<token1>,<token2> PORT=34871 node server.js
+```
+
+链接形如 `http://<公网IP>:34871/?room=<token>&seat=0&cpu=0&rules=full`（`seat=1/2/3` 给其他玩家，最多 4 人）。每个 token 是一个独立房间，房间之间互不影响。人机对战用页面顶部的模式切换（玩家 1 可切），或把 `cpu=0` 换成 `cpu=1`；人数用页面切换或 `players=3/4`（房主）；版本用页面切换或 `rules=minimal` / `rules=full`。建议用 systemd user 服务常驻，并在云安全组和主机防火墙放行该端口。不带 `room`（且没有开放房间）的页面和 API 请求会被拒绝。

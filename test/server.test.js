@@ -13,7 +13,7 @@ function startServer(env = {}) {
   const port = 33000 + Math.floor(Math.random() * 2000);
   const child = spawn(process.execPath, ['server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), REVEAL_MS: '120', ACCESS_TOKEN: '', ...env },
+    env: { ...process.env, PORT: String(port), REVEAL_MS: '120', ACCESS_TOKEN: '', ACCESS_TOKENS: '', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -130,8 +130,9 @@ function waitForSince(client, start, predicate, timeout = 4000) {
   });
 }
 
-async function pick(port, token, action, target) {
-  const res = await request(port, '/pick', 'POST', { token, action, target });
+async function pick(port, token, action, target, room = '') {
+  const route = room ? `/pick?room=${encodeURIComponent(room)}` : '/pick';
+  const res = await request(port, route, 'POST', { token, action, target });
   assert.equal(res.status, 200, `pick ${action}: ${JSON.stringify(res)}`);
 }
 
@@ -260,9 +261,45 @@ test('room token gates page and api', async (t) => {
   assert.equal(denied.status, 403);
   assert.equal(denied.json.error, 'forbidden');
 
-  const allowed = await request(srv.port, '/pick', 'POST', { room, token: 'x', action: 'charge' });
+  const allowed = await request(srv.port, `/pick?room=${room}`, 'POST', { room, token: 'x', action: 'charge' });
   assert.equal(allowed.status, 403);
   assert.equal(allowed.json.error, 'not seated');
+});
+
+test('rooms are isolated by token on one port', async (t) => {
+  const srv = startServer({ ACCESS_TOKENS: 'room-a,room-b', REVEAL_MS: '1500' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port, 'room-a');
+
+  const a1 = await sse(srv.port, 'token=pa&room=room-a&seat=0&cpu=0');
+  const a2 = await sse(srv.port, 'token=pb&room=room-a&seat=1&cpu=0');
+  const b1 = await sse(srv.port, 'token=pc&room=room-b&seat=0&cpu=0');
+  clients.push(a1, a2, b1);
+
+  const sa = await waitFor(a1, (m) => m.you === 0 && m.connected[0] && m.connected[1]);
+  assert.equal(sa.mode, 'pvp');
+  const sb = await waitFor(b1, (m) => m.you === 0 && m.connected[0] && !m.connected[1]);
+  assert.equal(sb.you, 0);
+
+  await pick(srv.port, 'pa', 'charge', null, 'room-a');
+  await pick(srv.port, 'pb', 'charge', null, 'room-a');
+  const revealA = await waitFor(a1, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.equal(revealA.reveal.picks[0].action, 'charge');
+
+  const healthA = await request(srv.port, '/health?room=room-a');
+  const healthB = await request(srv.port, '/health?room=room-b');
+  assert.equal(healthA.status, 200);
+  assert.equal(healthA.json.phase, 'reveal');
+  assert.equal(healthB.status, 200);
+  assert.equal(healthB.json.phase, 'pick');
+  assert.equal(healthB.json.round, 1);
+
+  assert.equal((await request(srv.port, '/health?room=nope')).status, 404);
+  assert.equal((await request(srv.port, '/?room=nope')).status, 404);
 });
 
 test('multiplayer: three seats, targets, stacking, dead player excluded', async (t) => {

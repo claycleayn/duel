@@ -103,7 +103,8 @@
 
   async function post(url, body) {
     try {
-      const response = await fetch(url, {
+      const target = room ? `${url}${url.includes('?') ? '&' : '?'}room=${encodeURIComponent(room)}` : url;
+      const response = await fetch(target, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, room }),
