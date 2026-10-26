@@ -18,14 +18,24 @@ function chooseBotPick(state, defs, random = Math.random) {
   const targets = opponents.length ? opponents : alive;
   if (!targets.length) return null;
 
-  const primary = choosePrimary(state, targets);
+  const primary = choosePrimary(state, targets, random);
   return defs.ult
     ? chooseMinimal(state, defs, random, seat, targets, primary)
     : chooseFull(state, defs, random, seat, targets, primary);
 }
 
-function choosePrimary(state, targets) {
-  return targets.slice().sort((a, b) => {
+function shuffle(items, random) {
+  const result = items.slice();
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function choosePrimary(state, targets, random) {
+  const shuffled = shuffle(targets, random);
+  return shuffled.sort((a, b) => {
     const shieldA = state.shield && state.shield[a] ? 1 : 0;
     const shieldB = state.shield && state.shield[b] ? 1 : 0;
     if (shieldA !== shieldB) return shieldA - shieldB;
@@ -35,7 +45,7 @@ function choosePrimary(state, targets) {
     const enA = state.en[a] ?? 0;
     const enB = state.en[b] ?? 0;
     if (enA !== enB) return enB - enA;
-    return a - b;
+    return 0;
   })[0];
 }
 

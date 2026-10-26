@@ -20,6 +20,8 @@ const MAX_LOG = 100;
 const MAX_PLAYERS = 4;
 const BOT_TOKEN = '__cpu__!';
 const TEAMS_2V2 = [0, 0, 1, 1];
+const BOT_RANDOM = process.env.BOT_RANDOM != null ? Number(process.env.BOT_RANDOM) : null;
+const botRandom = Number.isFinite(BOT_RANDOM) ? () => BOT_RANDOM : Math.random;
 
 const DEFAULTS = {
   hp: 1,
@@ -198,7 +200,7 @@ function botPickAll() {
       shield: game.shield,
       log: game.log,
       round: game.round,
-    }, defs);
+    }, defs, botRandom);
     if (!pick || !defs[pick.action] || game.en[seat] < defs[pick.action].cost) {
       game.picks[seat] = { action: 'charge', target: null };
       continue;
