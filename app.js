@@ -228,7 +228,12 @@
       } else if (isBot) {
         const seat = Number(btn.dataset.bot);
         active = !!view.bots[seat];
-        if (seat >= view.playerCount) disabled = true;
+        if (seat === 0) {
+          active = false;
+          disabled = true;
+        } else if (seat >= view.playerCount) {
+          disabled = true;
+        }
         btn.textContent = `${seat + 1} ${active ? '机' : '人'}`;
       } else if (isTeam) {
         active = view.teamMode === btn.dataset.team;
@@ -240,7 +245,7 @@
     });
     const note = $('modeNote');
     if (!view.online) note.textContent = '';
-    else note.textContent = host ? '你是房主;点击座位切换电脑/玩家;切换会重开' : '只有房主(P1)可以切换';
+    else note.textContent = host ? '你是房主(seat 0);电脑可填 2–4;切换会重开' : '只有房主(P1/seat 0)可以切换';
   }
 
   function renderCards() {
@@ -643,7 +648,7 @@
   }
 
   async function switchSeatBot(seat) {
-    if (!view.host || seat >= view.playerCount) return;
+    if (!view.host || seat === 0 || seat >= view.playerCount) return;
     const bots = [];
     for (let i = 0; i < view.playerCount; i += 1) bots.push(!!view.bots[i]);
     bots[seat] = !bots[seat];

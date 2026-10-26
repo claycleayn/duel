@@ -69,7 +69,6 @@ function notFound(res) {
 
 function createRoom(accessToken) {
   const tag = accessToken ? accessToken.slice(0, 6) : 'open';
-  let hostToken = null;
 
   const game = {
   cfg: { ...DEFAULTS },
@@ -260,7 +259,7 @@ function setBots(flags) {
   const next = [];
   let changed = false;
   for (let i = 0; i < count; i += 1) {
-    const want = !!flags[i];
+    const want = i === 0 ? false : !!flags[i];
     next.push(want);
     if (want !== (seats[i] === BOT_TOKEN)) changed = true;
   }
@@ -311,7 +310,7 @@ function stateFor(conn) {
   return {
     type: 'state',
     you: seat,
-    host: conn.token === hostToken,
+    host: seat === 0,
     mode: game.mode,
     ruleset: game.ruleset,
     teamMode: game.teamMode,
@@ -491,11 +490,8 @@ function handleEvents(req, res, url) {
   const botsParam = url.searchParams.get('bots');
   const teamsParam = url.searchParams.get('teams');
 
-  const hostConn = hostToken ? connections.get(hostToken) : null;
-  if ((preferred === 0 || preferred == null) && (!hostToken || !isLive(hostConn))) {
-    hostToken = token;
-  }
-  if (token === hostToken) {
+  const isHost = preferred === 0 && (seatOfToken(token) === 0 || seatAvailable(0));
+  if (isHost) {
     if (playersParam === '2' || playersParam === '3' || playersParam === '4') {
       setPlayerCount(Number(playersParam));
     }
@@ -670,7 +666,7 @@ function handleMode(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.token !== hostToken) {
+    if (!conn || conn.seat !== 0) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -689,7 +685,7 @@ function handleRuleset(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.token !== hostToken) {
+    if (!conn || conn.seat !== 0) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -708,7 +704,7 @@ function handlePlayerCount(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.token !== hostToken) {
+    if (!conn || conn.seat !== 0) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -728,7 +724,7 @@ function handleBots(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.token !== hostToken) {
+    if (!conn || conn.seat !== 0) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -749,7 +745,7 @@ function handleTeams(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.token !== hostToken) {
+    if (!conn || conn.seat !== 0) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
