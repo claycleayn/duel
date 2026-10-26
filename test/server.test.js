@@ -457,7 +457,7 @@ test('4p 2v2: eliminating both enemies wins', async (t) => {
 });
 
 test('bot-only rounds continue after all humans die', async (t) => {
-  const srv = startServer();
+  const srv = startServer({ BOT_RANDOM: '0.99' });
   const clients = [];
   t.after(() => {
     for (const client of clients) client.req.destroy();

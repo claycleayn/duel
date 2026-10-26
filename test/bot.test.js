@@ -172,3 +172,22 @@ test('primary target prefers unshielded and low-HP enemies', () => {
   const pick = chooseBotPick(team, minimalDefs, fixed(0.1));
   assert.equal(pick.target, 3);
 });
+
+test('bots do not systematically focus seat 0', () => {
+  const four = {
+    seat: 1,
+    playerCount: 4,
+    teams: null,
+    hp: [1, 1, 1, 1],
+    en: [0, 0, 0, 0],
+    shield: [true, true, true, true],
+    log: [],
+    round: 1,
+  };
+  const seen = new Set();
+  for (let i = 0; i < 300; i += 1) {
+    seen.add(chooseBotPick(four, fullDefs).target);
+  }
+  assert.ok(seen.size >= 2, `targets: ${[...seen].join(',')}`);
+  assert.ok(seen.has(2) || seen.has(3), `targets: ${[...seen].join(',')}`);
+});
