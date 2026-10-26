@@ -30,8 +30,12 @@
   const view = {
     online: false,
     you: null,
+    host: false,
     mode: 'pvp',
     ruleset: 'minimal',
+    teamMode: 'ffa',
+    teams: null,
+    bots: [false, false, false, false],
     playerCount: 2,
     cfg: { ...DEFAULTS },
     hp: [1, 1],
@@ -55,6 +59,8 @@
   const cpuParam = params.get('cpu');
   const rulesParam = params.get('rules');
   const playersParam = params.get('players');
+  const botsParam = params.get('bots');
+  const teamsParam = params.get('teams');
   const FILE_MODE = window.location.protocol === 'file:';
   let token = '';
 
@@ -121,7 +127,10 @@
   }
 
   function playerName(index) {
-    if (view.mode === 'cpu' && index === 1) return '电脑';
+    if (view.bots && view.bots[index]) {
+      const botCount = view.bots.slice(0, view.playerCount).filter(Boolean).length;
+      return botCount > 1 ? `电脑 ${index + 1}` : '电脑';
+    }
     return `玩家 ${index + 1}`;
   }
 
@@ -144,8 +153,15 @@
     ));
   }
 
+  function targetOptions() {
+    const alive = alivePlayers().filter((i) => i !== view.you);
+    if (!view.teams) return alive;
+    const enemies = alive.filter((i) => view.teams[i] !== view.teams[view.you]);
+    return enemies.length ? enemies.concat(alive.filter((i) => !enemies.includes(i))) : alive;
+  }
+
   function defaultTarget() {
-    const options = alivePlayers().filter((i) => i !== view.you);
+    const options = targetOptions();
     return options.length ? options[0] : null;
   }
 
@@ -195,21 +211,34 @@
   }
 
   function renderModeBar() {
-    const host = view.you === 0;
+    const host = view.host;
     document.querySelectorAll('.mode-btn').forEach((btn) => {
       const isCount = btn.dataset.count != null;
       const isRules = btn.dataset.rules != null;
-      let active;
-      if (isCount) active = view.playerCount === Number(btn.dataset.count);
-      else if (isRules) active = view.ruleset === btn.dataset.rules;
-      else active = view.mode === btn.dataset.mode;
+      const isBot = btn.dataset.bot != null;
+      const isTeam = btn.dataset.team != null;
+      let active = false;
+      let disabled = !view.online || !host;
+      if (isCount) {
+        active = view.playerCount === Number(btn.dataset.count);
+      } else if (isRules) {
+        active = view.ruleset === btn.dataset.rules;
+      } else if (isBot) {
+        const seat = Number(btn.dataset.bot);
+        active = !!view.bots[seat];
+        if (seat >= view.playerCount) disabled = true;
+        btn.textContent = `${seat + 1} ${active ? '机' : '人'}`;
+      } else if (isTeam) {
+        active = view.teamMode === btn.dataset.team;
+        if (view.playerCount !== 4) disabled = true;
+      }
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', String(active));
-      btn.disabled = !view.online || !host;
+      btn.disabled = disabled;
     });
     const note = $('modeNote');
     if (!view.online) note.textContent = '';
-    else note.textContent = host ? '切换会重开当前局' : '只有玩家 1 可以切换';
+    else note.textContent = host ? '点击座位切换电脑/玩家;切换会重开' : '只有房主可以切换';
   }
 
   function renderCards() {
@@ -251,6 +280,13 @@
       $('hpNum' + i).textContent = view.hp[i];
       $('enNum' + i).textContent = view.en[i];
       $('shield' + i).hidden = !view.shield[i];
+      const team = view.teams ? view.teams[i] : null;
+      const teamMark = $('team' + i);
+      teamMark.hidden = team == null;
+      if (team != null) {
+        teamMark.textContent = team === 0 ? '队伍 A' : '队伍 B';
+        teamMark.className = `team-mark ${team === 0 ? 'team-a' : 'team-b'}`;
+      }
       const isTarget = targeting && view.target === i;
       side.classList.toggle('target', isTarget);
       $('target' + i).hidden = !isTarget;
@@ -275,7 +311,7 @@
     const targetNeeded = sel ? needsTarget(sel) : false;
     const targeting = pickable && targetNeeded;
     if (targeting) {
-      const options = alivePlayers().filter((i) => i !== view.you);
+      const options = targetOptions();
       if (!options.includes(view.target)) view.target = options[0] ?? null;
     }
     const arena = document.querySelector('.arena');
@@ -361,6 +397,7 @@
         <li>水枪的穿透无视光明/黑暗与逃脱;防御和特殊护盾仍然有效。</li>
         <li>光明/黑暗只转移普通伤害;没有转移任何伤害时只消耗 1 点能量;转移来的伤害不会再次转移。</li>
         <li>血量归零即败;攻击/黑暗点其他玩家卡片选目标(2 人局自动是对手)。</li>
+        <li>座位可交给电脑;电脑之间会互相攻击。4 人可选 2v2:可以打队友,但只有消灭所有敌人才获胜。</li>
       `;
       return;
     }
@@ -377,6 +414,7 @@
       <li>互相攻击的两名玩家,伤害逐点抵消,只发生在双方之间。</li>
       <li>每个玩家用受击值减去自己的防御值,得到最终扣血值。</li>
       <li>能量无上限;血量降到 0 即败;攻击/大招点其他玩家卡片选目标。</li>
+      <li>座位可交给电脑;电脑之间会互相攻击。4 人可选 2v2:可以打队友,但只有消灭所有敌人才获胜。</li>
     `;
   }
 
@@ -501,7 +539,9 @@
   }
 
   function showOverlay() {
+    const teamWin = view.winner === 'team0' || view.winner === 'team1';
     const valid = view.winner === 'draw'
+      || teamWin
       || (typeof view.winner === 'number' && view.winner >= 0 && view.winner < view.playerCount);
     if (!valid) {
       $('overlay').hidden = true;
@@ -517,6 +557,12 @@
       $('overKicker').textContent = 'Draw';
       $('overTitle').textContent = '平局';
       $('overSub').textContent = `第 ${view.round} 回合 · 平局`;
+    } else if (teamWin) {
+      const team = view.winner === 'team0' ? 0 : 1;
+      card.classList.add(team === 0 ? 'p1' : 'p2');
+      $('overKicker').textContent = 'Winner';
+      $('overTitle').textContent = team === 0 ? '队伍 A 获胜' : '队伍 B 获胜';
+      $('overSub').textContent = `第 ${view.round} 回合 · 消灭所有敌人`;
     } else {
       const winner = view.winner;
       card.classList.add(`p${winner + 1}`);
@@ -559,7 +605,7 @@
     if (!action || view.en[view.you] < action.cost) return;
     selected = key;
     if (needsTarget(action)) {
-      const options = alivePlayers().filter((i) => i !== view.you);
+      const options = targetOptions();
       if (!options.includes(view.target)) view.target = options[0] ?? null;
     } else {
       view.target = null;
@@ -581,23 +627,8 @@
     renderControls();
   }
 
-  async function switchMode(mode) {
-    if (view.you !== 0 || view.mode === mode) return;
-    const result = await post('/mode', { token, mode });
-    if (!result.ok) {
-      $('modeNote').textContent = '切换失败,请重试';
-      return;
-    }
-    const url = new URL(window.location.href);
-    url.searchParams.set('cpu', mode === 'cpu' ? '1' : '0');
-    url.searchParams.set('seat', '0');
-    if (mode === 'cpu') url.searchParams.set('players', '2');
-    window.history.replaceState(null, '', url);
-    beep(440, 0.06, 'triangle', 0.03);
-  }
-
   async function switchRuleset(ruleset) {
-    if (view.you !== 0 || view.ruleset === ruleset) return;
+    if (!view.host || view.ruleset === ruleset) return;
     const result = await post('/ruleset', { token, ruleset });
     if (!result.ok) {
       $('modeNote').textContent = '切换失败,请重试';
@@ -605,13 +636,44 @@
     }
     const url = new URL(window.location.href);
     url.searchParams.set('rules', ruleset);
-    url.searchParams.set('seat', '0');
+    window.history.replaceState(null, '', url);
+    beep(440, 0.06, 'triangle', 0.03);
+  }
+
+  async function switchSeatBot(seat) {
+    if (!view.host || seat >= view.playerCount) return;
+    const bots = [];
+    for (let i = 0; i < view.playerCount; i += 1) bots.push(!!view.bots[i]);
+    bots[seat] = !bots[seat];
+    const result = await post('/bots', { token, bots });
+    if (!result.ok) {
+      $('modeNote').textContent = '切换失败,请重试';
+      return;
+    }
+    const enabled = bots.map((isBot, i) => (isBot ? i : null)).filter((i) => i !== null).join(',');
+    const url = new URL(window.location.href);
+    if (enabled) url.searchParams.set('bots', enabled);
+    else url.searchParams.delete('bots');
+    url.searchParams.delete('cpu');
+    window.history.replaceState(null, '', url);
+    beep(440, 0.06, 'triangle', 0.03);
+  }
+
+  async function switchTeams(teamMode) {
+    if (!view.host || view.playerCount !== 4 || view.teamMode === teamMode) return;
+    const result = await post('/teams', { token, teamMode });
+    if (!result.ok) {
+      $('modeNote').textContent = '切换失败,请重试';
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('teams', teamMode);
     window.history.replaceState(null, '', url);
     beep(440, 0.06, 'triangle', 0.03);
   }
 
   async function switchPlayerCount(count) {
-    if (view.you !== 0 || view.playerCount === count) return;
+    if (!view.host || view.playerCount === count) return;
     const result = await post('/playercount', { token, playerCount: count });
     if (!result.ok) {
       $('modeNote').textContent = '切换失败,请重试';
@@ -619,7 +681,10 @@
     }
     const url = new URL(window.location.href);
     url.searchParams.set('players', String(count));
-    url.searchParams.set('seat', '0');
+    const bots = view.bots.slice(0, count).map((isBot, i) => (isBot ? i : null)).filter((i) => i !== null).join(',');
+    if (bots) url.searchParams.set('bots', bots);
+    else url.searchParams.delete('bots');
+    if (count !== 4) url.searchParams.delete('teams');
     window.history.replaceState(null, '', url);
     beep(440, 0.06, 'triangle', 0.03);
   }
@@ -647,8 +712,12 @@
   function handleState(msg) {
     view.online = true;
     view.you = msg.you;
+    view.host = !!msg.host;
     view.mode = msg.mode || 'pvp';
     view.ruleset = msg.ruleset || 'minimal';
+    view.teamMode = msg.teamMode || 'ffa';
+    view.teams = msg.teams || null;
+    view.bots = msg.bots || [false, false, false, false];
     view.playerCount = msg.playerCount || 2;
     view.connected = msg.connected;
     view.locked = msg.locked;
@@ -750,10 +819,16 @@
       if (soundOn) beep(660, 0.06, 'triangle', 0.03);
     });
 
-    $('modeOptions').addEventListener('click', (event) => {
+    $('botOptions').addEventListener('click', (event) => {
       const btn = event.target.closest('button.mode-btn');
       if (!btn || btn.disabled) return;
-      switchMode(btn.dataset.mode);
+      switchSeatBot(Number(btn.dataset.bot));
+    });
+
+    $('teamOptions').addEventListener('click', (event) => {
+      const btn = event.target.closest('button.mode-btn');
+      if (!btn || btn.disabled) return;
+      switchTeams(btn.dataset.team);
     });
 
     $('rulesOptions').addEventListener('click', (event) => {
@@ -801,7 +876,9 @@
     const cpuQuery = cpuParam === null ? '' : `&cpu=${encodeURIComponent(cpuParam)}`;
     const rulesQuery = rulesParam === null ? '' : `&rules=${encodeURIComponent(rulesParam)}`;
     const playersQuery = playersParam === null ? '' : `&players=${encodeURIComponent(playersParam)}`;
-    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${rulesQuery}${playersQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
+    const botsQuery = botsParam === null ? '' : `&bots=${encodeURIComponent(botsParam)}`;
+    const teamsQuery = teamsParam === null ? '' : `&teams=${encodeURIComponent(teamsParam)}`;
+    const eventsUrl = `/events?token=${encodeURIComponent(token)}&room=${encodeURIComponent(room)}${cpuQuery}${rulesQuery}${playersQuery}${botsQuery}${teamsQuery}${preferredSeat === null ? '' : `&seat=${preferredSeat}`}`;
     const source = new EventSource(eventsUrl);
 
     source.onopen = () => {

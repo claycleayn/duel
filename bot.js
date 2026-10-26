@@ -1,103 +1,133 @@
 'use strict';
 
 /*
- * CPU 对手策略。只读取公开状态(血量/能量/护盾/历史行动),不偷看人类本回合的选择。
- * 返回 { action, target };random 可注入,方便测试。
+ * CPU 对手策略。只读取公开状态(血量/能量/护盾/历史行动),不偷看本回合选择。
+ * state: { seat, playerCount, teams, hp, en, shield, log, round }
+ * 返回 { action, target };target 是存活的对手(2v2 时自动排除队友)。
  */
 function chooseBotPick(state, defs, random = Math.random) {
+  const seat = state.seat ?? 1;
+  const count = state.playerCount ?? 2;
+  const teams = state.teams || null;
+  const hp = state.hp || [];
+  const alive = [];
+  for (let i = 0; i < count; i += 1) {
+    if ((hp[i] ?? 1) > 0 && i !== seat) alive.push(i);
+  }
+  const opponents = alive.filter((i) => !teams || teams[i] !== teams[seat]);
+  const targets = opponents.length ? opponents : alive;
+  if (!targets.length) return null;
+
+  const primary = choosePrimary(state, targets);
   return defs.ult
-    ? chooseMinimalPick(state, defs, random)
-    : chooseFullPick(state, defs, random);
+    ? chooseMinimal(state, defs, random, seat, targets, primary)
+    : chooseFull(state, defs, random, seat, targets, primary);
 }
 
-function chooseMinimalPick(state, defs, random) {
-  const HUMAN = 0;
-  const BOT = 1;
-  const en = state.en[BOT];
-  const humanEn = state.en[HUMAN];
+function choosePrimary(state, targets) {
+  return targets.slice().sort((a, b) => {
+    const shieldA = state.shield && state.shield[a] ? 1 : 0;
+    const shieldB = state.shield && state.shield[b] ? 1 : 0;
+    if (shieldA !== shieldB) return shieldA - shieldB;
+    const hpA = state.hp[a] ?? 1;
+    const hpB = state.hp[b] ?? 1;
+    if (hpA !== hpB) return hpA - hpB;
+    const enA = state.en[a] ?? 0;
+    const enB = state.en[b] ?? 0;
+    if (enA !== enB) return enB - enA;
+    return a - b;
+  })[0];
+}
+
+function historyOf(state, targets) {
+  const entries = (state.log || []).slice(0, 12);
+  const counts = {};
+  let total = 0;
+  for (const entry of entries) {
+    for (const index of targets) {
+      const key = entry.players && entry.players[index] && entry.players[index].key;
+      if (!key) continue;
+      counts[key] = (counts[key] || 0) + 1;
+      total += 1;
+    }
+  }
+  return { counts, total };
+}
+
+function targetHistory(state, index) {
+  const entries = (state.log || []).slice(0, 12);
+  const counts = {};
+  let total = 0;
+  for (const entry of entries) {
+    const key = entry.players && entry.players[index] && entry.players[index].key;
+    if (!key) continue;
+    counts[key] = (counts[key] || 0) + 1;
+    total += 1;
+  }
+  return { counts, total };
+}
+
+function rate(counts, total, key) {
+  return total ? (counts[key] || 0) / total : 0;
+}
+
+function chooseMinimal(state, defs, random, seat, targets, primary) {
+  const en = state.en[seat];
   const ultCost = defs.ult.cost;
   const attackCost = defs.attack.cost;
+  const pick = (action) => ({ action, target: primary });
 
-  const history = (state.log || [])
-    .slice(0, 12)
-    .map((entry) => entry.a && entry.a.key)
-    .filter(Boolean);
-
-  const counts = { attack: 0, charge: 0, defend: 0, ult: 0 };
-  for (const key of history) {
-    if (counts[key] != null) counts[key] += 1;
-  }
-  const total = history.length || 1;
-
-  const pick = (action) => ({ action, target: HUMAN });
-
-  // 5 能量的大招对非大招行动全胜;双方同时大招则抵消。到 5 就直接放。
   if (en >= ultCost) return pick('ult');
 
-  // 自己没能量:只能蓄力或防御。人类历史上攻击越多,越偏向防御。
+  const { counts, total } = historyOf(state, targets);
+  const attackRate = rate(counts, total, 'attack');
+
   if (en < attackCost) {
-    const attackRate = counts.attack / total;
     return pick(random() < 0.3 + attackRate * 0.5 ? 'defend' : 'charge');
   }
 
-  // 人类没能量:他只能蓄力或防御。攻击打蓄力,蓄力吃防御。
-  if (humanEn < attackCost) {
-    const chargeRate = counts.charge / total;
-    const defendRate = counts.defend / total;
+  const allCanAttack = targets.every((i) => (state.en[i] ?? 0) >= attackCost);
+  if (!allCanAttack) {
+    const chargeRate = rate(counts, total, 'charge');
+    const defendRate = rate(counts, total, 'defend');
     const attackChance = (chargeRate + 0.2) / (chargeRate + defendRate + 0.4);
     return pick(random() < attackChance ? 'attack' : 'charge');
   }
 
-  // 双方都能攻击:按人类历史做猜拳克制,留 35% 随机避免被读死。
   const ranked = [
-    ['attack', counts.attack],
-    ['charge', counts.charge],
-    ['defend', counts.defend],
+    ['attack', counts.attack || 0],
+    ['charge', counts.charge || 0],
+    ['defend', counts.defend || 0],
   ].sort((left, right) => right[1] - left[1]);
   const most = ranked[0][0];
   const best = most === 'attack' ? 'defend' : most === 'charge' ? 'attack' : 'charge';
-
   if (random() < 0.65) return pick(best);
   const options = ['attack', 'defend', 'charge'];
   return pick(options[Math.floor(random() * options.length) % options.length]);
 }
 
-function chooseFullPick(state, defs, random) {
-  const HUMAN = 0;
-  const BOT = 1;
-  const en = state.en[BOT];
-  const humanEn = state.en[HUMAN];
-  const humanShield = !!(state.shield && state.shield[HUMAN]);
-
-  const history = (state.log || [])
-    .slice(0, 12)
-    .map((entry) => entry.a && entry.a.key)
-    .filter(Boolean);
-
-  const counts = {};
-  for (const key of history) counts[key] = (counts[key] || 0) + 1;
-  const total = history.length || 1;
-
-  const pick = (action) => ({ action, target: HUMAN });
+function chooseFull(state, defs, random, seat, targets, primary) {
+  const en = state.en[seat];
+  const pick = (action) => ({ action, target: primary });
   const afford = (key) => !!defs[key] && en >= defs[key].cost;
+  const primaryEn = state.en[primary] ?? 0;
+  const primaryShield = !!(state.shield && state.shield[primary]);
+  const primaryHistory = targetHistory(state, primary);
+  const opponentHistory = historyOf(state, targets);
+  const attackRate = rate(primaryHistory.counts, primaryHistory.total, 'attack');
+  const waterRate = rate(primaryHistory.counts, primaryHistory.total, 'water');
+  const transferRate = rate(opponentHistory.counts, opponentHistory.total, 'light')
+    + rate(opponentHistory.counts, opponentHistory.total, 'dark');
 
-  // 人类护盾还在:先用最便宜的伤害把盾打掉,别把 4/5 费技能喂给盾。
-  if (humanShield) {
+  if (primaryShield) {
     if (afford('attack')) return pick(random() < 0.8 ? 'attack' : 'charge');
     if (afford('water')) return pick('water');
     return pick(random() < 0.3 ? 'defend' : 'charge');
   }
 
-  const attackRate = (counts.attack || 0) / total;
-  const waterRate = (counts.water || 0) / total;
-  const transferRate = ((counts.light || 0) + (counts.dark || 0)) / total;
-
-  // 人类历史上爱攻击、又不太用水枪时,光明转移一次很赚。
-  if (afford('light') && humanEn >= defs.attack.cost && attackRate > 0.35 && waterRate < 0.2) {
+  if (afford('light') && primaryEn >= defs.attack.cost && attackRate > 0.35 && waterRate < 0.2) {
     if (random() < 0.25) return pick('light');
   }
-
-  // 人类爱用光明/黑暗时,水枪的穿透反过来克制。
   if (afford('double')) {
     if (transferRate > 0.35 && afford('water') && random() < 0.6) return pick('water');
     return pick(random() < 0.75 ? 'double' : afford('attack') ? 'attack' : 'double');
@@ -106,7 +136,6 @@ function chooseFullPick(state, defs, random) {
     return pick(random() < 0.55 ? 'water' : afford('attack') ? 'attack' : 'water');
   }
   if (afford('attack')) return pick('attack');
-
   return pick(random() < 0.3 ? 'defend' : 'charge');
 }
 

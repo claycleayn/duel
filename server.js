@@ -19,6 +19,7 @@ const MAX_ROUNDS = 200;
 const MAX_LOG = 100;
 const MAX_PLAYERS = 4;
 const BOT_TOKEN = '__cpu__!';
+const TEAMS_2V2 = [0, 0, 1, 1];
 
 const DEFAULTS = {
   hp: 1,
@@ -68,11 +69,13 @@ function notFound(res) {
 
 function createRoom(accessToken) {
   const tag = accessToken ? accessToken.slice(0, 6) : 'open';
+  let hostToken = null;
 
   const game = {
   cfg: { ...DEFAULTS },
-  mode: 'pvp', // pvp | cpu
+  mode: 'pvp', // pvp | cpu (derived from bot seats)
   ruleset: 'full', // minimal | full
+  teamMode: 'ffa', // ffa | 2v2
   playerCount: 2,
   hp: [1, 1, 0, 0],
   en: [0, 0, 0, 0],
@@ -159,43 +162,139 @@ function refreshSeats() {
   }
 }
 
-function botPick() {
-  if (game.mode !== 'cpu' || game.phase !== 'pick' || game.picks[1]) return;
+function activeBots() {
+  const flags = [];
+  for (let i = 0; i < game.playerCount; i += 1) flags.push(seats[i] === BOT_TOKEN);
+  return flags;
+}
+
+function updateMode() {
+  game.mode = activeBots().some(Boolean) ? 'cpu' : 'pvp';
+}
+
+function botPickAll() {
+  if (game.phase !== 'pick') return;
   const defs = actionDefs(game.cfg, game.ruleset);
-  const pick = chooseBotPick({ hp: game.hp, en: game.en, shield: game.shield, log: game.log, round: game.round }, defs);
-  if (!pick || !defs[pick.action] || game.en[1] < defs[pick.action].cost) {
-    game.picks[1] = { action: 'charge', target: 0 };
-    return;
+  const count = game.playerCount;
+  const teams = game.teamMode === '2v2' && count === 4 ? TEAMS_2V2 : null;
+  for (let seat = 0; seat < count; seat += 1) {
+    if (seats[seat] !== BOT_TOKEN || game.picks[seat] || game.hp[seat] <= 0) continue;
+    const pick = chooseBotPick({
+      seat,
+      playerCount: count,
+      teams,
+      hp: game.hp,
+      en: game.en,
+      shield: game.shield,
+      log: game.log,
+      round: game.round,
+    }, defs);
+    if (!pick || !defs[pick.action] || game.en[seat] < defs[pick.action].cost) {
+      game.picks[seat] = { action: 'charge', target: null };
+      continue;
+    }
+    const def = defs[pick.action];
+    const needsTarget = (def.effects ?? []).some((effect) => (
+      (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
+    ));
+    let target = pick.target;
+    if (needsTarget) {
+      const opponents = [];
+      for (let i = 0; i < count; i += 1) {
+        if (i === seat || game.hp[i] <= 0) continue;
+        if (teams && teams[i] === teams[seat]) continue;
+        opponents.push(i);
+      }
+      if (!Number.isInteger(target) || target === seat || target < 0 || target >= count
+        || game.hp[target] <= 0 || (teams && teams[target] === teams[seat])) {
+        target = opponents.length ? opponents[0] : null;
+      }
+      if (target == null) {
+        game.picks[seat] = { action: 'charge', target: null };
+        continue;
+      }
+    } else {
+      target = null;
+    }
+    game.picks[seat] = { action: pick.action, target };
   }
-  game.picks[1] = { action: pick.action, target: 0 };
 }
 
 function setMode(mode) {
   if (mode !== 'cpu' && mode !== 'pvp') return;
-  if (game.mode === mode) return;
-  game.mode = mode;
   if (mode === 'cpu') {
+    const already = game.playerCount === 2 && seats[0] !== BOT_TOKEN && seats[1] === BOT_TOKEN;
+    if (already) {
+      updateMode();
+      return;
+    }
     game.playerCount = 2;
+    game.teamMode = 'ffa';
+    if (seats[0] === BOT_TOKEN) seats[0] = null;
     seats[1] = BOT_TOKEN;
     seats[2] = null;
     seats[3] = null;
-  } else if (seats[1] === BOT_TOKEN) {
-    seats[1] = null;
+  } else {
+    let hadBot = false;
+    for (let i = 0; i < MAX_PLAYERS; i += 1) {
+      if (seats[i] === BOT_TOKEN) {
+        seats[i] = null;
+        hadBot = true;
+      }
+    }
+    game.teamMode = 'ffa';
+    if (!hadBot) {
+      updateMode();
+      return;
+    }
   }
+  updateMode();
   refreshSeats();
   resetGame();
-  botPick();
+  botPickAll();
+}
+
+function setBots(flags) {
+  if (!Array.isArray(flags)) return;
+  const count = game.playerCount;
+  const next = [];
+  let changed = false;
+  for (let i = 0; i < count; i += 1) {
+    const want = !!flags[i];
+    next.push(want);
+    if (want !== (seats[i] === BOT_TOKEN)) changed = true;
+  }
+  if (!changed) return;
+  for (let i = 0; i < count; i += 1) {
+    if (next[i]) seats[i] = BOT_TOKEN;
+    else if (seats[i] === BOT_TOKEN) seats[i] = null;
+    game.picks[i] = null;
+  }
+  updateMode();
+  refreshSeats();
+  resetGame();
+  botPickAll();
+}
+
+function setTeams(teamMode) {
+  if (teamMode !== 'ffa' && teamMode !== '2v2') return;
+  if (teamMode === '2v2' && game.playerCount !== 4) return;
+  if (game.teamMode === teamMode) return;
+  game.teamMode = teamMode;
+  resetGame();
+  botPickAll();
 }
 
 function setPlayerCount(count) {
   if (count !== 2 && count !== 3 && count !== 4) return;
   if (game.playerCount === count) return;
-  if (game.mode === 'cpu') setMode('pvp');
   game.playerCount = count;
+  if (count !== 4 && game.teamMode === '2v2') game.teamMode = 'ffa';
   for (let i = count; i < MAX_PLAYERS; i += 1) seats[i] = null;
+  updateMode();
   refreshSeats();
   resetGame();
-  botPick();
+  botPickAll();
 }
 
 function setRuleset(ruleset) {
@@ -203,7 +302,7 @@ function setRuleset(ruleset) {
   if (game.ruleset === ruleset) return;
   game.ruleset = ruleset;
   resetGame();
-  botPick();
+  botPickAll();
 }
 
 function stateFor(conn) {
@@ -212,8 +311,12 @@ function stateFor(conn) {
   return {
     type: 'state',
     you: seat,
+    host: conn.token === hostToken,
     mode: game.mode,
     ruleset: game.ruleset,
+    teamMode: game.teamMode,
+    teams: game.teamMode === '2v2' && count === 4 ? TEAMS_2V2.slice(0, count) : null,
+    bots: activeBots(),
     playerCount: count,
     cfg: game.cfg,
     hp: game.hp.slice(0, count),
@@ -253,7 +356,10 @@ function broadcast() {
 
 function makeLogEntry(round, picks, result, defs) {
   const count = game.playerCount;
-  const label = (index) => (game.mode === 'cpu' && index === 1 ? '电脑' : `玩家 ${index + 1}`);
+  const botCount = seats.slice(0, count).filter((token) => token === BOT_TOKEN).length;
+  const label = (index) => (seats[index] === BOT_TOKEN
+    ? (botCount > 1 ? `电脑 ${index + 1}` : '电脑')
+    : `玩家 ${index + 1}`);
   const bits = [];
   const canceledTotal = result.canceledPairs.reduce((sum, pair) => sum + pair.amount, 0);
   if (canceledTotal) bits.push(`抵消 <b>${canceledTotal}</b>`);
@@ -334,8 +440,16 @@ function resolvePicks() {
   for (let i = 0; i < count; i += 1) {
     if (game.hp[i] > 0) alive.push(i);
   }
-  const finished = alive.length <= 1;
-  if (finished) game.winner = alive.length === 1 ? alive[0] : 'draw';
+  let finished;
+  if (game.teamMode === '2v2' && count === 4) {
+    const aliveA = alive.filter((i) => TEAMS_2V2[i] === 0).length;
+    const aliveB = alive.filter((i) => TEAMS_2V2[i] === 1).length;
+    finished = aliveA === 0 || aliveB === 0;
+    if (finished) game.winner = aliveA > 0 ? 'team0' : aliveB > 0 ? 'team1' : 'draw';
+  } else {
+    finished = alive.length <= 1;
+    if (finished) game.winner = alive.length === 1 ? alive[0] : 'draw';
+  }
 
   clearTimeout(game.timer);
   game.timer = setTimeout(() => {
@@ -350,7 +464,7 @@ function resolvePicks() {
       game.picks = [null, null, null, null];
       game.phase = 'pick';
       game.reveal = null;
-      botPick();
+      botPickAll();
     }
     broadcast();
   }, REVEAL_MS);
@@ -374,13 +488,28 @@ function handleEvents(req, res, url) {
   const cpuParam = url.searchParams.get('cpu');
   const rulesParam = url.searchParams.get('rules');
   const playersParam = url.searchParams.get('players');
-  const isHost = preferred === 0 && (seatOfToken(token) === 0 || seatAvailable(0));
-  if (isHost) {
-    if (cpuParam === '1') setMode('cpu');
-    else if (cpuParam === '0') setMode('pvp');
+  const botsParam = url.searchParams.get('bots');
+  const teamsParam = url.searchParams.get('teams');
+
+  if (!hostToken) hostToken = token;
+  if (token === hostToken) {
     if (playersParam === '2' || playersParam === '3' || playersParam === '4') {
       setPlayerCount(Number(playersParam));
     }
+    if (botsParam != null) {
+      const wanted = new Set(
+        botsParam.split(',').map((part) => Number(part.trim())).filter((n) => Number.isInteger(n)),
+      );
+      const flags = [];
+      for (let i = 0; i < game.playerCount; i += 1) flags.push(wanted.has(i));
+      setBots(flags);
+    } else if (cpuParam === '1') {
+      setMode('cpu');
+    } else if (cpuParam === '0') {
+      setMode('pvp');
+    }
+    if (teamsParam === '2v2') setTeams('2v2');
+    else if (teamsParam === 'ffa') setTeams('ffa');
     if (rulesParam === 'full') setRuleset('full');
     else if (rulesParam === 'minimal') setRuleset('minimal');
   }
@@ -479,7 +608,7 @@ function handlePick(req, res) {
     }
 
     game.picks[seat] = { action: body.action, target };
-    if (game.mode === 'cpu' && !game.picks[1]) botPick();
+    if (game.mode === 'cpu') botPickAll();
     const allPicked = alive.every((index) => game.picks[index] != null);
     if (allPicked) resolvePicks();
     else broadcast();
@@ -500,7 +629,7 @@ function handleRestart(req, res) {
       return;
     }
     resetGame();
-    botPick();
+    botPickAll();
     broadcast();
     console.log('[game] restart');
     respond(res, 200, { ok: true });
@@ -527,7 +656,7 @@ function handleConfig(req, res) {
     game.cfg.ultDmg = clamp(body.ultDmg, 1, 10, game.cfg.ultDmg);
 
     resetGame();
-    botPick();
+    botPickAll();
     broadcast();
     console.log('[config]', game.cfg);
     respond(res, 200, { ok: true, cfg: game.cfg });
@@ -538,7 +667,7 @@ function handleMode(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.seat !== 0) {
+    if (!conn || conn.token !== hostToken) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -557,7 +686,7 @@ function handleRuleset(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.seat !== 0) {
+    if (!conn || conn.token !== hostToken) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -576,7 +705,7 @@ function handlePlayerCount(req, res) {
   readBody(req, res, (body) => {
     const token = cleanToken(body.token);
     const conn = token ? connections.get(token) : null;
-    if (!conn || conn.seat !== 0) {
+    if (!conn || conn.token !== hostToken) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
@@ -592,6 +721,50 @@ function handlePlayerCount(req, res) {
   });
 }
 
+function handleBots(req, res) {
+  readBody(req, res, (body) => {
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.token !== hostToken) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    if (!Array.isArray(body.bots)) {
+      respond(res, 400, { ok: false, error: 'bad bots' });
+      return;
+    }
+    const flags = [];
+    for (let i = 0; i < game.playerCount; i += 1) flags.push(!!body.bots[i]);
+    setBots(flags);
+    broadcast();
+    console.log('[bots]', activeBots());
+    respond(res, 200, { ok: true, bots: activeBots() });
+  });
+}
+
+function handleTeams(req, res) {
+  readBody(req, res, (body) => {
+    const token = cleanToken(body.token);
+    const conn = token ? connections.get(token) : null;
+    if (!conn || conn.token !== hostToken) {
+      respond(res, 403, { ok: false, error: 'host only' });
+      return;
+    }
+    if (body.teamMode !== 'ffa' && body.teamMode !== '2v2') {
+      respond(res, 400, { ok: false, error: 'bad team mode' });
+      return;
+    }
+    if (body.teamMode === '2v2' && game.playerCount !== 4) {
+      respond(res, 400, { ok: false, error: '2v2 needs 4 players' });
+      return;
+    }
+    setTeams(body.teamMode);
+    broadcast();
+    console.log('[teams]', body.teamMode);
+    respond(res, 200, { ok: true, teamMode: body.teamMode });
+  });
+}
+
   return {
     token: accessToken,
     handleEvents,
@@ -601,10 +774,14 @@ function handlePlayerCount(req, res) {
     handleMode,
     handleRuleset,
     handlePlayerCount,
+    handleBots,
+    handleTeams,
     health: () => ({
       ok: true,
       mode: game.mode,
       ruleset: game.ruleset,
+      teamMode: game.teamMode,
+      bots: activeBots(),
       playerCount: game.playerCount,
       phase: game.phase,
       round: game.round,
@@ -674,6 +851,8 @@ const server = http.createServer((req, res) => {
     if (url.pathname === '/mode') { room.handleMode(req, res); return; }
     if (url.pathname === '/ruleset') { room.handleRuleset(req, res); return; }
     if (url.pathname === '/playercount') { room.handlePlayerCount(req, res); return; }
+    if (url.pathname === '/bots') { room.handleBots(req, res); return; }
+    if (url.pathname === '/teams') { room.handleTeams(req, res); return; }
   }
   if (req.method === 'GET' && url.pathname === '/health') {
     if (!room) {
