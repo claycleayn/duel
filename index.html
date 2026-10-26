@@ -31,16 +31,23 @@
     </header>
 
     <div class="mode-bar" role="group" aria-label="对战设置">
-      <span class="mode-label">模式</span>
-      <div class="mode-options" id="modeOptions">
-        <button class="mode-btn" type="button" data-mode="pvp" aria-pressed="false">双人</button>
-        <button class="mode-btn" type="button" data-mode="cpu" aria-pressed="false">人机</button>
+      <span class="mode-label">座位</span>
+      <div class="mode-options" id="botOptions">
+        <button class="mode-btn" type="button" data-bot="0" aria-pressed="false">1 人</button>
+        <button class="mode-btn" type="button" data-bot="1" aria-pressed="false">2 人</button>
+        <button class="mode-btn" type="button" data-bot="2" aria-pressed="false">3 人</button>
+        <button class="mode-btn" type="button" data-bot="3" aria-pressed="false">4 人</button>
       </div>
       <span class="mode-label">人数</span>
       <div class="mode-options" id="countOptions">
         <button class="mode-btn" type="button" data-count="2" aria-pressed="false">2</button>
         <button class="mode-btn" type="button" data-count="3" aria-pressed="false">3</button>
         <button class="mode-btn" type="button" data-count="4" aria-pressed="false">4</button>
+      </div>
+      <span class="mode-label">队伍</span>
+      <div class="mode-options" id="teamOptions">
+        <button class="mode-btn" type="button" data-team="ffa" aria-pressed="false">混战</button>
+        <button class="mode-btn" type="button" data-team="2v2" aria-pressed="false">2v2</button>
       </div>
       <span class="mode-label">版本</span>
       <div class="mode-options" id="rulesOptions">
@@ -55,6 +62,7 @@
         <div class="side-head">
           <span class="side-name"><span id="name0">玩家 1</span> <span class="you-mark" id="you0" hidden>你</span></span>
           <span class="side-badges">
+            <span class="team-mark" id="team0" hidden>队伍 A</span>
             <span class="shield-mark" id="shield0" hidden>护盾</span>
             <span class="target-mark" id="target0" hidden>目标</span>
             <span class="side-tag" id="tag0"></span>
@@ -76,6 +84,7 @@
         <div class="side-head">
           <span class="side-name"><span id="name1">玩家 2</span> <span class="you-mark" id="you1" hidden>你</span></span>
           <span class="side-badges">
+            <span class="team-mark" id="team1" hidden>队伍 A</span>
             <span class="shield-mark" id="shield1" hidden>护盾</span>
             <span class="target-mark" id="target1" hidden>目标</span>
             <span class="side-tag" id="tag1"></span>
@@ -97,6 +106,7 @@
         <div class="side-head">
           <span class="side-name"><span id="name2">玩家 3</span> <span class="you-mark" id="you2" hidden>你</span></span>
           <span class="side-badges">
+            <span class="team-mark" id="team2" hidden>队伍 A</span>
             <span class="shield-mark" id="shield2" hidden>护盾</span>
             <span class="target-mark" id="target2" hidden>目标</span>
             <span class="side-tag" id="tag2"></span>
@@ -118,6 +128,7 @@
         <div class="side-head">
           <span class="side-name"><span id="name3">玩家 4</span> <span class="you-mark" id="you3" hidden>你</span></span>
           <span class="side-badges">
+            <span class="team-mark" id="team3" hidden>队伍 A</span>
             <span class="shield-mark" id="shield3" hidden>护盾</span>
             <span class="target-mark" id="target3" hidden>目标</span>
             <span class="side-tag" id="tag3"></span>

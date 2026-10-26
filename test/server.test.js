@@ -350,3 +350,100 @@ test('multiplayer: three seats, targets, stacking, dead player excluded', async 
   assert.equal(deadPick.status, 409);
   assert.equal(deadPick.json.error, 'dead');
 });
+
+async function setupFourTeams(srv) {
+  const h = await sse(srv.port, 'token=p0&seat=0&players=4&teams=2v2&rules=minimal');
+  const p1 = await sse(srv.port, 'token=p1&seat=1');
+  const p2 = await sse(srv.port, 'token=p2&seat=2');
+  const p3 = await sse(srv.port, 'token=p3&seat=3');
+  const clients = [h, p1, p2, p3];
+  const state = await waitFor(h, (m) => m.playerCount === 4 && m.teamMode === '2v2' && m.connected.every(Boolean));
+  const mark = h.messages.length;
+  const cfg = await request(srv.port, '/config', 'POST', { token: 'p0', hp: 1, startEnergy: 1, ultCost: 5, ultDmg: 2 });
+  assert.equal(cfg.status, 200);
+  await waitForSince(h, mark, (m) => m.en[0] === 1 && m.phase === 'pick' && m.round === 1);
+  return { h, p1, p2, p3, clients, state };
+}
+
+test('bots can fill any seat and the host can toggle them', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const host = await sse(srv.port, 'token=host&seat=1&players=3&bots=0,2');
+  clients.push(host);
+  const initial = await waitFor(host, (m) => m.playerCount === 3 && m.you === 1 && m.host === true);
+  assert.deepEqual(initial.bots, [true, false, true]);
+  assert.deepEqual(initial.locked, [true, false, true]);
+  assert.equal(initial.teamMode, 'ffa');
+  assert.equal(initial.reveal, null);
+
+  const mark = host.messages.length;
+  const toggle = await request(srv.port, '/bots', 'POST', { token: 'host', bots: [false, false, true] });
+  assert.equal(toggle.status, 200);
+  const toggled = await waitForSince(host, mark, (m) => m.bots[0] === false);
+  assert.deepEqual(toggled.bots, [false, false, true]);
+  assert.equal(toggled.round, 1);
+
+  const other = await sse(srv.port, 'token=other&seat=0');
+  clients.push(other);
+  await waitFor(other, (m) => m.you === 0);
+  const denied = await request(srv.port, '/bots', 'POST', { token: 'other', bots: [true, false, true] });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.json.error, 'host only');
+
+  const teams = await request(srv.port, '/teams', 'POST', { token: 'host', teamMode: '2v2' });
+  assert.equal(teams.status, 400);
+});
+
+test('4p 2v2: friendly fire is allowed and does not end the game', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+  const { h, clients: four, state } = await setupFourTeams(srv);
+  clients.push(...four);
+  assert.deepEqual(state.teams, [0, 0, 1, 1]);
+
+  await pick(srv.port, 'p0', 'attack', 1);
+  await pick(srv.port, 'p1', 'charge');
+  await pick(srv.port, 'p2', 'charge');
+  await pick(srv.port, 'p3', 'charge');
+
+  const reveal = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.equal(reveal.reveal.picks[0].target, 1);
+  assert.deepEqual(reveal.hp.slice(0, 2), [1, 0]);
+  assert.equal(reveal.winner, null);
+  const next = await waitFor(h, (m) => m.phase === 'pick' && m.round === 2);
+  assert.equal(next.winner, null);
+});
+
+test('4p 2v2: eliminating both enemies wins', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+  const { h, clients: four } = await setupFourTeams(srv);
+  clients.push(...four);
+
+  await pick(srv.port, 'p0', 'attack', 2);
+  await pick(srv.port, 'p1', 'attack', 3);
+  await pick(srv.port, 'p2', 'charge');
+  await pick(srv.port, 'p3', 'charge');
+
+  const reveal = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(reveal.hp, [1, 1, 0, 0]);
+  assert.equal(reveal.winner, 'team0');
+  const over = await waitFor(h, (m) => m.phase === 'over');
+  assert.equal(over.winner, 'team0');
+});
