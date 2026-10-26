@@ -365,7 +365,7 @@ async function setupFourTeams(srv) {
   return { h, p1, p2, p3, clients, state };
 }
 
-test('bots can fill any seat and the host can toggle them', async (t) => {
+test('bots can fill seats 2-4 while seat 0 stays the host', async (t) => {
   const srv = startServer();
   const clients = [];
   t.after(() => {
@@ -399,14 +399,13 @@ test('bots can fill any seat and the host can toggle them', async (t) => {
   const teams = await request(srv.port, '/teams', 'POST', { token: 'host', teamMode: '2v2' });
   assert.equal(teams.status, 400);
 
-  // The host can turn its own seat into a bot and keep host control.
+  // Seat 0 is the host and cannot be turned into a bot.
   const mark2 = host.messages.length;
-  const selfBot = await request(srv.port, '/bots', 'POST', { token: 'host', bots: [true, false, true] });
-  assert.equal(selfBot.status, 200);
-  const selfState = await waitForSince(host, mark2, (m) => m.bots[0] === true);
-  assert.equal(selfState.host, true);
-  assert.equal(selfState.you, 'spectator');
-  assert.deepEqual(selfState.bots, [true, false, true]);
+  const forced = await request(srv.port, '/bots', 'POST', { token: 'host', bots: [true, false, true] });
+  assert.equal(forced.status, 200);
+  const forcedState = await waitForSince(host, mark2, (m) => m.bots[0] === false && m.host === true);
+  assert.deepEqual(forcedState.bots, [false, false, true]);
+  assert.equal(forcedState.you, 0);
 });
 
 test('4p 2v2: friendly fire is allowed and does not end the game', async (t) => {
