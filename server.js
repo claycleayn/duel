@@ -491,7 +491,10 @@ function handleEvents(req, res, url) {
   const botsParam = url.searchParams.get('bots');
   const teamsParam = url.searchParams.get('teams');
 
-  if (!hostToken) hostToken = token;
+  const hostConn = hostToken ? connections.get(hostToken) : null;
+  if ((preferred === 0 || preferred == null) && (!hostToken || !isLive(hostConn))) {
+    hostToken = token;
+  }
   if (token === hostToken) {
     if (playersParam === '2' || playersParam === '3' || playersParam === '4') {
       setPlayerCount(Number(playersParam));

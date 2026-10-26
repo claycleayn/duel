@@ -374,11 +374,11 @@ test('bots can fill any seat and the host can toggle them', async (t) => {
   });
   await waitReady(srv.port);
 
-  const host = await sse(srv.port, 'token=host&seat=1&players=3&bots=0,2');
+  const host = await sse(srv.port, 'token=host&seat=0&players=3&bots=1,2');
   clients.push(host);
-  const initial = await waitFor(host, (m) => m.playerCount === 3 && m.you === 1 && m.host === true);
-  assert.deepEqual(initial.bots, [true, false, true]);
-  assert.deepEqual(initial.locked, [true, false, true]);
+  const initial = await waitFor(host, (m) => m.playerCount === 3 && m.you === 0 && m.host === true);
+  assert.deepEqual(initial.bots, [false, true, true]);
+  assert.deepEqual(initial.locked, [false, true, true]);
   assert.equal(initial.teamMode, 'ffa');
   assert.equal(initial.reveal, null);
 
@@ -389,15 +389,24 @@ test('bots can fill any seat and the host can toggle them', async (t) => {
   assert.deepEqual(toggled.bots, [false, false, true]);
   assert.equal(toggled.round, 1);
 
-  const other = await sse(srv.port, 'token=other&seat=0');
+  const other = await sse(srv.port, 'token=other&seat=1');
   clients.push(other);
-  await waitFor(other, (m) => m.you === 0);
+  await waitFor(other, (m) => m.you === 1);
   const denied = await request(srv.port, '/bots', 'POST', { token: 'other', bots: [true, false, true] });
   assert.equal(denied.status, 403);
   assert.equal(denied.json.error, 'host only');
 
   const teams = await request(srv.port, '/teams', 'POST', { token: 'host', teamMode: '2v2' });
   assert.equal(teams.status, 400);
+
+  // The host can turn its own seat into a bot and keep host control.
+  const mark2 = host.messages.length;
+  const selfBot = await request(srv.port, '/bots', 'POST', { token: 'host', bots: [true, false, true] });
+  assert.equal(selfBot.status, 200);
+  const selfState = await waitForSince(host, mark2, (m) => m.bots[0] === true);
+  assert.equal(selfState.host, true);
+  assert.equal(selfState.you, 'spectator');
+  assert.deepEqual(selfState.bots, [true, false, true]);
 });
 
 test('4p 2v2: friendly fire is allowed and does not end the game', async (t) => {
