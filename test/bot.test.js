@@ -191,3 +191,14 @@ test('bots do not systematically focus seat 0', () => {
   assert.ok(seen.size >= 2, `targets: ${[...seen].join(',')}`);
   assert.ok(seen.has(2) || seen.has(3), `targets: ${[...seen].join(',')}`);
 });
+
+test('bots skip defend/escape when every enemy has 0 EN', () => {
+  for (const value of [0, 0.5, 0.99]) {
+    const pick = chooseBotPick(state(0, 0), minimalDefs, fixed(value));
+    assert.equal(pick.action, 'charge');
+  }
+  const guarded = chooseBotPick(fullState(0, 0, [true, false]), fullDefs, fixed(0.99));
+  assert.equal(guarded.action, 'charge');
+  const attacker = chooseBotPick(fullState(1, 0, [true, false]), fullDefs, fixed(0));
+  assert.equal(attacker.action, 'attack');
+});

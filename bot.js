@@ -19,9 +19,15 @@ function chooseBotPick(state, defs, random = Math.random) {
   if (!targets.length) return null;
 
   const primary = choosePrimary(state, targets, random);
-  return defs.ult
+  const attackCost = defs.attack?.cost ?? 1;
+  const enemiesIdle = targets.every((i) => (state.en[i] ?? 0) < attackCost);
+  const result = defs.ult
     ? chooseMinimal(state, defs, random, seat, targets, primary)
     : chooseFull(state, defs, random, seat, targets, primary);
+  if (enemiesIdle && result && (result.action === 'defend' || result.action === 'escape')) {
+    return { action: 'charge', target: primary };
+  }
+  return result;
 }
 
 function shuffle(items, random) {
