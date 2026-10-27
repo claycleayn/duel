@@ -516,7 +516,6 @@ test('cards: deals 2 basic + 3 other cards and rejects cards outside the hand', 
   const outside = Object.keys(cardDefs()).find((key) => !sa.hand.includes(key));
   assert.equal((await pickCards(srv.port, 'a', [outside])).status, 400);
   assert.equal((await pickCards(srv.port, 'a', [sa.hand[0], sa.hand[0]])).status, 400);
-  assert.equal((await pickCards(srv.port, 'a', sa.hand)).status, 400);
 
   const first = basics[0];
   assert.equal((await pickCards(srv.port, 'a', [first])).status, 200);
@@ -597,7 +596,7 @@ test('cards: cpu submits a legal, affordable subset of its hand', async (t) => {
   assert.ok(cost <= init.en[1], `cost ${cost} > ${init.en[1]}`);
 });
 
-test('cards: energy gained earlier in the sequence pays for later cards', async (t) => {
+test('cards: overdraw costs 10 HP and stops the sequence', async (t) => {
   const srv = startServer({ BOT_RANDOM: '0.72' });
   const clients = [];
   t.after(() => {
@@ -614,12 +613,39 @@ test('cards: energy gained earlier in the sequence pays for later cards', async 
   assert.deepEqual(sa.hand.slice().sort(), ['attack', 'charge', 'focus', 'slash', 'water']);
   assert.deepEqual(sa.en, [30, 30]);
 
-  assert.equal((await pickCards(srv.port, 'a', ['slash'], 1)).status, 400);
-  assert.equal((await pickCards(srv.port, 'a', ['slash', 'focus'], 1)).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', ['slash'], 1)).status, 200);
+  assert.equal((await pickCards(srv.port, 'b', [])).status, 200);
+  const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.equal(first.reveal.result.overdraw[0], true);
+  assert.equal(first.hp[0], 90);
+  assert.equal(first.hp[1], 100);
+  assert.equal(first.en[0], 30);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
   assert.equal((await pickCards(srv.port, 'a', ['focus', 'slash'], 1)).status, 200);
   assert.equal((await pickCards(srv.port, 'b', [])).status, 200);
+  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.equal(second.reveal.result.overdraw[0], false);
+  assert.equal(second.hp[1], 80);
+  assert.equal(second.en[0], 40);
+});
 
-  const reveal = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
-  assert.equal(reveal.hp[1], 80);
-  assert.equal(reveal.en[0], 40);
+test('cards: escape cannot be played with other cards', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.15' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+  await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+
+  const denied = await pickCards(srv.port, 'a', ['escape', 'attack'], 1);
+  assert.equal(denied.status, 400);
+  assert.equal(denied.json.error, 'exclusive card');
+  assert.equal((await pickCards(srv.port, 'a', ['escape'])).status, 200);
 });

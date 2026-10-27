@@ -985,3 +985,14 @@
   }
 
   .card-kw { color: var(--kw); font-weight: 600; }
+
+  .card-tag {
+    padding: 1px 5px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: .06em;
+    color: var(--kw);
+    white-space: nowrap;
+  }

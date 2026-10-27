@@ -138,6 +138,7 @@
       escape: {
         key: 'escape', name: '逃脱', tier: 'epic', cost: 10,
         desc: '免疫本回合所有普通伤害;穿透伤害仍然命中。',
+        exclusive: true,
         effects: [{ kind: 'immunity' }],
       },
       execute: {
@@ -212,17 +213,28 @@
     const energyNext = Array.from({ length: playerCount }, () => []);
     const buffAdded = Array(playerCount).fill(0);
     const buffUsed = Array(playerCount).fill(0);
+    const overdraw = Array(playerCount).fill(false);
+    const sequential = Array.isArray(state.energy);
 
     for (let from = 0; from < playerCount; from += 1) {
       const pick = picks[from];
       if (!pick) continue;
       const list = pickDefs(pick, defs);
       if (!list.length) continue;
+      const startEnergy = sequential ? (state.energy[from] ?? 0) : 0;
+      let budget = startEnergy;
       let carried = state.attackBuff?.[from] ?? 0;
       let added = 0;
 
       for (const def of list) {
-        energyDelta[from] -= def.cost ?? 0;
+        const cost = def.cost ?? 0;
+        // 顺序结算:付不起就中断,这张和后面的牌都不打。
+        if (sequential && cost > budget) {
+          overdraw[from] = true;
+          break;
+        }
+        if (sequential) budget -= cost;
+        else energyDelta[from] -= cost;
         const effects = def.effects ?? [];
         const isAttack = effects.some((effect) => effect.kind === 'damage');
         let cardBonus = 0;
@@ -235,7 +247,8 @@
         }
         for (const effect of effects) {
           if (effect.kind === 'energy') {
-            energyDelta[from] += effect.amount;
+            if (sequential) budget += effect.amount;
+            else energyDelta[from] += effect.amount;
           } else if (effect.kind === 'energyNext') {
             energyNext[from].push({ amount: effect.amount, delay: effect.delay ?? 1 });
           } else if (effect.kind === 'defense') {
@@ -268,6 +281,7 @@
         }
       }
       buffAdded[from] = added;
+      if (sequential && !overdraw[from]) energyDelta[from] += budget - startEnergy;
     }
 
     // 相互攻击逐点抵消。按无序对遍历,人数增加时复杂度是 O(n²),不是组合爆炸。
@@ -363,6 +377,7 @@
       heal,
       buffAdded,
       buffUsed,
+      overdraw,
       defense,
       normal,
       piercing,

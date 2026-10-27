@@ -156,39 +156,6 @@
     return cardDefs();
   }
 
-  function cardCost(keys) {
-    const cards = handCards();
-    return keys.reduce((sum, key) => sum + (cards[key]?.cost ?? 0), 0);
-  }
-
-  function sequenceEnergy(keys, start) {
-    const cards = handCards();
-    let en = start;
-    for (const key of keys) {
-      const card = cards[key];
-      if (!card) continue;
-      en -= card.cost;
-      for (const effect of card.effects ?? []) {
-        if (effect.kind === 'energy') en += effect.amount;
-      }
-    }
-    return en;
-  }
-
-  function sequenceValid(keys, start) {
-    const cards = handCards();
-    let en = start;
-    for (const key of keys) {
-      const card = cards[key];
-      if (!card || card.cost > en) return false;
-      en -= card.cost;
-      for (const effect of card.effects ?? []) {
-        if (effect.kind === 'energy') en += effect.amount;
-      }
-    }
-    return true;
-  }
-
   function selectionNeedsTarget() {
     const cards = handCards();
     return selectedCards.some((key) => needsTarget(cards[key]));
@@ -401,16 +368,13 @@
 
   function renderCardControls() {
     const pickable = isMyTurn();
-    const energy = typeof view.you === 'number' ? view.en[view.you] : 0;
     const cards = handCards();
-    const available = sequenceEnergy(selectedCards, energy);
-    const valid = sequenceValid(selectedCards, energy);
 
     document.querySelectorAll('button.card').forEach((btn) => {
       const card = cards[btn.dataset.card];
       if (!card) return;
       const isSelected = selectedCards.includes(btn.dataset.card);
-      btn.disabled = !pickable || card.cost > available;
+      btn.disabled = !pickable;
       btn.classList.toggle('selected', isSelected);
       btn.setAttribute('aria-pressed', String(isSelected));
       if (isSelected) btn.dataset.order = String(selectedCards.indexOf(btn.dataset.card) + 1);
@@ -443,15 +407,14 @@
     } else if (selectedCards.length) {
       const label = selectedCards.map((key) => cards[key].name).join(' + ');
       const aim = targetNeeded ? ' · 点击上方玩家卡片选择目标' : '';
-      const tail = valid ? ` · 打完剩余 ${available} 能量` : ' · 能量不足';
-      desc = `${label}${tail}${aim}`;
+      desc = `${label}${aim}`;
     } else {
       desc = '选择要打出的牌(张数不限),也可以直接跳过。';
     }
     $('actionDesc').textContent = desc;
 
     const lock = $('lockBtn');
-    lock.disabled = !pickable || !valid || (targetNeeded && view.target == null);
+    lock.disabled = !pickable || (targetNeeded && view.target == null);
     lock.textContent = '锁定行动';
   }
 
@@ -554,9 +517,10 @@
       $('rulesNotes').innerHTML = `
         <li>能量不清空:开局 3 点,每回合自动 +3;蓄力/聚能是下回合给能量。</li>
         <li>每回合抽 2 张基础 + 3 张其它牌;出牌张数不限,回合结束弃掉全部手牌重新抽。</li>
-        <li>出牌按你点击的顺序逐张扣费;聚能的能量当场到账,可以解锁后面的牌;也可以跳过不出。</li>
+        <li>出牌按你点击的顺序逐张结算;能量不够的那张不会打出,并扣 10 血、中断后面所有牌、清空能量。</li>
+        <li>聚能的能量当场到账,可以给后面的牌用;也可以跳过不出。</li>
         <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
-        <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量(下回合或下下回合)。</li>
+        <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量;排斥 = 不能与其他牌同时打出。</li>
         <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
       `;
       return;
@@ -858,7 +822,14 @@
     const kind = document.createElement('span');
     kind.className = 'card-kind';
     kind.textContent = type === 'attack' ? '攻击' : type === 'power' ? '能力' : '技能';
-    foot.append(tier, kind);
+    foot.append(tier);
+    if (card.exclusive) {
+      const tag = document.createElement('span');
+      tag.className = 'card-tag';
+      tag.textContent = '排斥';
+      foot.appendChild(tag);
+    }
+    foot.appendChild(kind);
 
     btn.append(top, art, text, foot);
     return btn;
@@ -936,6 +907,10 @@
     const index = selectedCards.indexOf(key);
     if (index >= 0) {
       selectedCards.splice(index, 1);
+    } else if (card.exclusive) {
+      selectedCards = [key];
+    } else if (selectedCards.some((item) => cards[item].exclusive)) {
+      selectedCards = [key];
     } else {
       selectedCards.push(key);
     }
@@ -1032,7 +1007,6 @@
   async function lockPick() {
     if (!isMyTurn()) return;
     if (cardMode()) {
-      if (!sequenceValid(selectedCards, view.en[view.you])) return;
       if (selectionNeedsTarget() && view.target == null) return;
       const actions = selectedCards.slice();
       const target = view.target;

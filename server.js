@@ -35,6 +35,7 @@ const DEFAULTS = {
 
 // 卡牌模式的固定经济:血量 100、开局 30 EN、每回合 +30 EN(能量不清空);数值统一 ×10 便于微调。
 const CARD_RULES = { hp: 100, startEnergy: 30, roundEnergy: 30 };
+const OVERDRAW_DAMAGE = 10;
 const BASIC_CARDS = ['charge', 'attack', 'defend'];
 
 function cleanToken(raw) {
@@ -524,6 +525,11 @@ function makeLogEntry(round, picks, result, defs) {
     }
   }
   for (let i = 0; i < count; i += 1) {
+    if (result.overdraw[i]) {
+      bits.push(`${label(i)} 能量不足,中断出牌并受到 <b class="hurt">${OVERDRAW_DAMAGE}</b> 点伤害`);
+    }
+  }
+  for (let i = 0; i < count; i += 1) {
     if (result.hpLoss[i]) bits.push(`${label(i)} 受到 <b class="hurt">${result.hpLoss[i]}</b> 点伤害`);
   }
   const text = bits.length ? bits.join(' · ') : '无人受伤';
@@ -556,6 +562,7 @@ function resolvePicks() {
     attackBuff: game.buff.slice(0, count),
     hp: game.hp.slice(0, count),
     maxHp: CARD_RULES.hp,
+    energy: cards ? game.en.slice(0, count) : undefined,
   });
   const before = {
     hp: game.hp.slice(0, count),
@@ -564,25 +571,30 @@ function resolvePicks() {
   };
 
   for (let i = 0; i < count; i += 1) {
-    game.en[i] += result.energyDelta[i];
     game.buff[i] += result.buffAdded[i] - result.buffUsed[i];
-    const survived = game.hp[i] - result.hpLoss[i] > 0;
-    game.hp[i] = Math.max(0, game.hp[i] - result.hpLoss[i]);
-    if (survived && result.heal[i]) {
-      game.hp[i] = Math.min(CARD_RULES.hp, game.hp[i] + result.heal[i]);
+    let hp = Math.max(0, game.hp[i] - result.hpLoss[i]);
+    if (hp > 0 && result.heal[i]) {
+      hp = Math.min(CARD_RULES.hp, hp + result.heal[i]);
     }
-    if (cards) {
-      if (survived) {
-        const due = game.pending[i];
-        game.pending[i] = 0;
-        game.en[i] += due + CARD_RULES.roundEnergy;
-        for (const gain of result.energyNext[i]) {
-          if ((gain.delay ?? 1) >= 2) game.pending[i] += gain.amount;
-          else game.en[i] += gain.amount;
-        }
-      } else {
-        game.pending[i] = 0;
+    if (result.overdraw[i]) hp = Math.max(0, hp - OVERDRAW_DAMAGE);
+    const survived = hp > 0;
+    game.hp[i] = hp;
+
+    if (!cards) {
+      game.en[i] += result.energyDelta[i];
+      continue;
+    }
+    game.en[i] = result.overdraw[i] ? 0 : game.en[i] + result.energyDelta[i];
+    if (survived) {
+      const due = game.pending[i];
+      game.pending[i] = 0;
+      game.en[i] += due + CARD_RULES.roundEnergy;
+      for (const gain of result.energyNext[i]) {
+        if ((gain.delay ?? 1) >= 2) game.pending[i] += gain.amount;
+        else game.en[i] += gain.amount;
       }
+    } else {
+      game.pending[i] = 0;
     }
   }
   game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));
@@ -766,8 +778,8 @@ function handlePick(req, res) {
         respond(res, 400, { ok: false, error: 'bad cards' });
         return;
       }
-      if (!sequenceAffordable(actions, cards, game.en[seat])) {
-        respond(res, 400, { ok: false, error: 'not enough energy' });
+      if (actions.length > 1 && actions.some((key) => cards[key].exclusive)) {
+        respond(res, 400, { ok: false, error: 'exclusive card' });
         return;
       }
       const teams = game.teamMode === '2v2' && count === 4 ? TEAMS_2V2 : null;

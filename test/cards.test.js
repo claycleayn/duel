@@ -28,6 +28,7 @@ test('card catalog: tiers, costs and effects', () => {
   assert.equal(cards.strength.effects[0].kind, 'buff');
   assert.equal(cards.heal.tier, 'rare');
   assert.equal(cards.focus.tier, 'epic');
+  assert.equal(cards.escape.exclusive, true);
   assert.equal(cards.focus.cost, 0);
   assert.equal(cards.focus.effects[0].amount, 20);
   for (const def of Object.values(cards)) {
@@ -152,4 +153,24 @@ test('cards: execute adds half of the target missing health', () => {
   assert.equal(full.incoming[1], 10);
   const hurt = resolveRound(2, [aimed(1, 'execute'), null], cards, state({ hp: [100, 70], maxHp: 100 }));
   assert.equal(hurt.incoming[1], 25);
+});
+
+test('cards: overdraw stops the rest of the sequence', () => {
+  const result = resolveRound(2, [pick('attack', 'slash'), null], cards, state({
+    en: [30, 30],
+    energy: [30, 30],
+  }));
+  assert.equal(result.overdraw[0], true);
+  assert.equal(result.incoming[1], 10);
+  assert.equal(result.energyDelta[0], 0);
+});
+
+test('cards: energy gained earlier pays later cards in order', () => {
+  const result = resolveRound(2, [pick('focus', 'slash'), null], cards, state({
+    en: [30, 30],
+    energy: [30, 30],
+  }));
+  assert.equal(result.overdraw[0], false);
+  assert.equal(result.incoming[1], 20);
+  assert.equal(result.energyDelta[0], -20);
 });
