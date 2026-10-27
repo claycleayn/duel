@@ -28,8 +28,8 @@ test('card catalog: tiers, costs and effects', () => {
   assert.equal(cards.strength.effects[0].kind, 'buff');
   assert.equal(cards.heal.tier, 'rare');
   assert.equal(cards.focus.tier, 'epic');
-  assert.equal(cards.focus.cost, 50);
-  assert.equal(cards.focus.effects[0].amount, 80);
+  assert.equal(cards.focus.cost, 0);
+  assert.equal(cards.focus.effects[0].amount, 20);
   for (const def of Object.values(cards)) {
     assert.equal(typeof def.cost, 'number');
     assert.ok(Array.isArray(def.effects) && def.effects.length > 0);
@@ -48,10 +48,10 @@ test('cards: charge pays now and pays out next round', () => {
   assert.deepEqual(result.energyNext[0], [{ amount: 30, delay: 2 }]);
 });
 
-test('cards: focus pays out 8 energy next round', () => {
+test('cards: focus is free and grants 20 energy immediately', () => {
   const result = resolveRound(2, [pick('focus'), null], cards, state());
-  assert.equal(result.energyDelta[0], -50);
-  assert.deepEqual(result.energyNext[0], [{ amount: 80, delay: 1 }]);
+  assert.equal(result.energyDelta[0], 20);
+  assert.deepEqual(result.energyNext[0], []);
 });
 
 test('cards: strength adds +20 to every hit of the next attack card', () => {

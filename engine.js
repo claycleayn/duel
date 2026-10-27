@@ -146,9 +146,9 @@
         effects: [{ kind: 'damage', amount: 10, target: 'chosen', execute: true }],
       },
       focus: {
-        key: 'focus', name: '聚能', tier: 'epic', cost: 50,
-        desc: '下回合 能量 80。',
-        effects: [{ kind: 'energyNext', amount: 80 }],
+        key: 'focus', name: '聚能', tier: 'epic', cost: 0,
+        desc: '能量 20。',
+        effects: [{ kind: 'energy', amount: 20 }],
       },
     };
   }
