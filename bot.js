@@ -155,4 +155,57 @@ function chooseFull(state, defs, random, seat, targets, primary) {
   return pick(random() < 0.3 ? 'defend' : 'charge');
 }
 
-module.exports = { chooseBotPick };
+function chooseCardPick(state, cards, random = Math.random) {
+  const seat = state.seat ?? 1;
+  const count = state.playerCount ?? 2;
+  const teams = state.teams || null;
+  const hp = state.hp || [];
+  const alive = [];
+  for (let i = 0; i < count; i += 1) {
+    if ((hp[i] ?? 1) > 0 && i !== seat) alive.push(i);
+  }
+  const opponents = alive.filter((i) => !teams || teams[i] !== teams[seat]);
+  const targets = opponents.length ? opponents : alive;
+  if (!targets.length) return null;
+
+  const primary = choosePrimary(state, targets, random);
+  const en = state.en[seat] ?? 0;
+  const bonus = state.damageBonus?.[seat] ?? 0;
+  const hpOf = (i) => hp[i] ?? 10;
+  const cost = (key) => cards[key].cost;
+  const damageOf = (key) => (cards[key].effects || [])
+    .filter((effect) => effect.kind === 'damage')
+    .reduce((sum, effect) => sum + effect.amount, 0);
+  const needsTarget = (key) => (cards[key].effects || []).some((effect) => (
+    (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
+  ));
+  const pick = (actions) => ({
+    actions,
+    target: actions.some(needsTarget) ? primary : null,
+  });
+
+  if (en >= cost('execute') && hpOf(primary) <= damageOf('execute') + bonus) {
+    return pick(['execute']);
+  }
+  if (en >= cost('dark') && (state.en[primary] ?? 0) >= cost('slash') && random() < 0.6) {
+    return pick(['dark']);
+  }
+  if (en >= cost('light') && random() < 0.25) return pick(['light']);
+
+  let basic = 'charge';
+  if (en >= cost('attack')) {
+    const lethal = hpOf(primary) <= damageOf('attack') + bonus;
+    basic = lethal || random() < 0.55 ? 'attack' : 'defend';
+  }
+
+  const budget = en - cost(basic);
+  const rares = ['slash', 'water', 'strength', 'focus'].filter((key) => cost(key) <= budget);
+  let rare = null;
+  if (rares.includes('strength') && bonus < 3 && random() < 0.5) rare = 'strength';
+  else if (rares.includes('slash')) rare = 'slash';
+  else if (rares.includes('focus') && random() < 0.5) rare = 'focus';
+  else if (rares.includes('water')) rare = 'water';
+  return pick(rare ? [basic, rare] : [basic]);
+}
+
+module.exports = { chooseBotPick, chooseCardPick };

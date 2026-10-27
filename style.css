@@ -899,3 +899,50 @@
   @media (max-width: 560px) {
     .card { width: 156px; height: 226px; }
   }
+
+  .power-mark {
+    padding: 3px 7px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: .06em;
+    color: var(--side-color);
+    white-space: nowrap;
+  }
+
+  /* card mode hand: three tier rows of compact playable cards */
+  .controls.cards-mode .action-grid { display: flex; flex-direction: column; gap: 10px; }
+  .card-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .card-group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: var(--muted);
+  }
+  .card-row { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+  button.card {
+    appearance: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    align-self: stretch;
+  }
+  button.card:disabled { cursor: default; opacity: .42; filter: grayscale(.35); }
+  button.card:disabled:hover { transform: none; border-color: var(--line); }
+  .card.play { width: 150px; height: auto; min-height: 152px; gap: 5px; padding: 8px; }
+  .card.play .card-art { height: 42px; flex: none; }
+  .card.play .card-art svg { width: 20px; height: 20px; }
+  .card.play .card-name { font-size: 12.5px; }
+  .card.play .card-text { font-size: 10.5px; line-height: 1.45; }
+  .card.play .card-cost-icons .energy-glyph { width: 10px; height: 10px; }
+
+  .rule-cost {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: .08em;
+  }

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const { actionDefs, attackTotal } = window.DuelEngine;
+  const { actionDefs, cardDefs, attackTotal } = window.DuelEngine;
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,6 +27,23 @@
     escape: '<path d="M5 7l5 5-5 5M12 7l5 5-5 5"/>',
   };
 
+  const CARD_ICONS = {
+    charge: ICONS.charge,
+    attack: ICONS.attack,
+    defend: ICONS.defend,
+    slash: ICONS.double,
+    water: ICONS.water,
+    focus: ICONS.charge,
+    strength: '<path d="M12 2.5 14 10l7.5 2-7.5 2-2 7.5-2-7.5L2.5 12 10 10 12 2.5Z"/>',
+    dark: ICONS.dark,
+    light: ICONS.light,
+    escape: ICONS.escape,
+    execute: '<path d="M4 16 15 5M9 20 20 9M12 2v3"/>',
+  };
+
+  const TIER_LABEL = { basic: '基础', rare: '稀有', epic: '史诗' };
+  const TIER_NOTE = { basic: '任意 1 张', rare: '与基础牌搭配', epic: '单独出 1 张' };
+
   const view = {
     online: false,
     you: null,
@@ -41,6 +58,7 @@
     hp: [1, 1],
     en: [0, 0],
     shield: [false, false],
+    bonus: [0, 0],
     round: 1,
     phase: 'pick',
     winner: null,
@@ -65,6 +83,7 @@
   let token = '';
 
   let selected = null;
+  let selectedCards = [];
   let busy = false;
   let soundOn = true;
   let audioCtx = null;
@@ -123,7 +142,44 @@
   }
 
   function currentDefs() {
-    return actionDefs(view.cfg, view.ruleset);
+    return cardMode() ? handCards() : actionDefs(view.cfg, view.ruleset);
+  }
+
+  function cardMode() {
+    return view.ruleset === 'cards';
+  }
+
+  function handCards() {
+    return cardDefs();
+  }
+
+  function cardCost(keys) {
+    const cards = handCards();
+    return keys.reduce((sum, key) => sum + (cards[key]?.cost ?? 0), 0);
+  }
+
+  function selectionNeedsTarget() {
+    const cards = handCards();
+    return selectedCards.some((key) => needsTarget(cards[key]));
+  }
+
+  function selectionValid() {
+    const cards = handCards();
+    const count = selectedCards.length;
+    if (!count) return false;
+    const tiers = selectedCards.map((key) => cards[key]?.tier);
+    if (tiers.includes(undefined)) return false;
+    if (tiers.includes('epic')) return count === 1;
+    if (count === 1) return tiers[0] === 'basic';
+    return count === 2
+      && tiers.filter((tier) => tier === 'basic').length === 1
+      && tiers.filter((tier) => tier === 'rare').length === 1;
+  }
+
+  function resetSelection() {
+    selected = null;
+    selectedCards = [];
+    view.target = null;
   }
 
   function playerName(index) {
@@ -252,7 +308,9 @@
     const arena = document.querySelector('.arena');
     if (arena) arena.dataset.players = String(view.playerCount);
     const defs = currentDefs();
-    const targeting = isMyTurn() && selected && needsTarget(defs[selected]);
+    const targeting = isMyTurn() && (cardMode()
+      ? selectionNeedsTarget()
+      : !!(selected && needsTarget(defs[selected])));
     for (let i = 0; i < 4; i += 1) {
       const side = $('side' + i);
       side.hidden = i >= view.playerCount;
@@ -281,11 +339,17 @@
       }
       $('tag' + i).textContent = tag;
 
+      const manyPips = view.cfg.hp > 8;
       buildPips($('hp' + i), view.cfg.hp, view.hp[i], 'hp');
       const enSlots = Math.max(5, view.cfg.ultCost);
       buildPips($('en' + i), enSlots, Math.min(view.en[i], enSlots), 'en');
-      $('hpNum' + i).textContent = view.hp[i];
+      $('hp' + i).hidden = manyPips;
+      $('en' + i).hidden = cardMode();
+      $('hpNum' + i).textContent = manyPips ? `${view.hp[i]}/${view.cfg.hp}` : view.hp[i];
       $('enNum' + i).textContent = view.en[i];
+      const bonus = view.bonus?.[i] ?? 0;
+      $('power' + i).hidden = bonus <= 0;
+      $('power' + i).textContent = `力量 +${bonus}`;
       $('shield' + i).hidden = !view.shield[i];
       const team = view.teams ? view.teams[i] : null;
       const teamMark = $('team' + i);
@@ -300,7 +364,76 @@
     }
   }
 
+  function pickKeys(pick) {
+    if (!pick) return [];
+    if (Array.isArray(pick.actions) && pick.actions.length) return pick.actions;
+    return pick.action ? [pick.action] : [];
+  }
+
+  function pickLabel(pick, defs) {
+    return pickKeys(pick).map((key) => defs[key]?.name ?? key).join(' + ');
+  }
+
+  function renderCardControls() {
+    const pickable = isMyTurn();
+    const energy = typeof view.you === 'number' ? view.en[view.you] : 0;
+    const cards = handCards();
+    const spent = cardCost(selectedCards);
+
+    document.querySelectorAll('button.card').forEach((btn) => {
+      const card = cards[btn.dataset.card];
+      if (!card) return;
+      const isSelected = selectedCards.includes(btn.dataset.card);
+      const otherCost = spent - (isSelected ? card.cost : 0);
+      btn.disabled = !pickable || energy < otherCost + card.cost;
+      btn.classList.toggle('selected', isSelected);
+      btn.setAttribute('aria-pressed', String(isSelected));
+    });
+
+    const targetNeeded = selectionNeedsTarget();
+    const targeting = pickable && targetNeeded;
+    if (targeting) {
+      const options = targetOptions();
+      if (!options.includes(view.target)) view.target = options[0] ?? null;
+    }
+    const arena = document.querySelector('.arena');
+    if (arena) arena.classList.toggle('targeting', targeting);
+
+    let desc = '';
+    if (FILE_MODE) desc = '请先运行 node server.js,再打开 http://localhost:3000';
+    else if (!view.online) desc = '正在连接服务器…';
+    else if (view.phase === 'reveal') desc = '结算中…';
+    else if (view.phase === 'over') desc = '本局结束。';
+    else if (typeof view.you !== 'number') desc = '观众模式。';
+    else if (view.hp[view.you] <= 0) desc = '你已倒下,观战中。';
+    else if (!allAliveConnected()) desc = '等待其他玩家加入…';
+    else if (view.locked[view.you]) {
+      const pick = view.yourPick;
+      const label = pickLabel(pick, cards);
+      desc = label
+        ? `已锁定:${label}${pick.target != null ? ` → ${playerName(pick.target)}` : ''} · 等待其他玩家…`
+        : '已锁定,等待其他玩家…';
+    } else if (selectedCards.length) {
+      const label = selectedCards.map((key) => cards[key].name).join(' + ');
+      const invalid = selectionValid() ? '' : ' · 还需要 1 张基础牌';
+      const aim = targetNeeded ? ' · 点击上方玩家卡片选择目标' : '';
+      desc = `${label} · 共 ${spent} 能量${invalid}${aim}`;
+    } else {
+      desc = '选 1 张基础 + 1 张稀有,或单独 1 张史诗。';
+    }
+    $('actionDesc').textContent = desc;
+
+    const lock = $('lockBtn');
+    lock.disabled = !pickable || !selectionValid() || spent > energy
+      || (targetNeeded && view.target == null);
+    lock.textContent = '锁定行动';
+  }
+
   function renderControls() {
+    if (cardMode()) {
+      renderCardControls();
+      return;
+    }
     const pickable = isMyTurn();
     const energy = typeof view.you === 'number' ? view.en[view.you] : 0;
     const defs = currentDefs();
@@ -387,6 +520,20 @@
   }
 
   function renderRules() {
+    if (view.ruleset === 'cards') {
+      const cards = handCards();
+      $('rulesBody').innerHTML = Object.values(cards).map((card) => (
+        `<dt>${card.name} <span class="rule-cost">${card.cost} EN</span></dt><dd>${card.desc}</dd>`
+      )).join('');
+      $('rulesNotes').innerHTML = `
+        <li>能量不清空:开局 2 点,每回合自动 +1;蓄力/聚能再额外加。</li>
+        <li>每回合出 1 张基础 + 1 张稀有,或单独 1 张史诗;也可以只出 1 张基础。</li>
+        <li>开局 10 点血量;防御的格挡只在本回合有效。</li>
+        <li>力量是永久增益:之后你的每张伤害牌都 +1,可以叠加。</li>
+        <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
+      `;
+      return;
+    }
     if (view.ruleset === 'full') {
       $('rulesBody').innerHTML = `
         <dt>蓄力</dt><dd>获得 1 点能量;不刷新护盾。</dd>
@@ -433,6 +580,10 @@
     const full = view.ruleset === 'full';
     $('cfgUltCostField').hidden = full;
     $('cfgUltDmgField').hidden = full;
+    const cardsMode = view.ruleset === 'cards';
+    $('cfgForm').querySelectorAll('input, button').forEach((el) => {
+      el.disabled = cardsMode;
+    });
   }
 
   function renderAll() {
@@ -446,22 +597,30 @@
     else $('overlay').hidden = true;
   }
 
+  function pickDamage(pick, defs) {
+    return pickKeys(pick).reduce((sum, key) => sum + (defs[key] ? attackTotal(defs[key]) : 0), 0);
+  }
+
+  function pickNeedsTarget(pick, defs) {
+    return pickKeys(pick).some((key) => needsTarget(defs[key]));
+  }
+
   function stageRevealStart(picks) {
     const defs = currentDefs();
     if (view.playerCount === 2 && picks[0] && picks[1]) {
-      const A = defs[picks[0].action];
-      const B = defs[picks[1].action];
-      const dmgA = attackTotal(A);
-      const dmgB = attackTotal(B);
+      const nameA = pickLabel(picks[0], defs);
+      const nameB = pickLabel(picks[1], defs);
+      const dmgA = pickDamage(picks[0], defs);
+      const dmgB = pickDamage(picks[1], defs);
       $('stageContent').innerHTML = `
         <div class="clash">
           <div class="clash-side p1">
-            <span class="clash-action">${A.name}</span>
+            <span class="clash-action">${nameA}</span>
             <span class="clash-dmg${dmgA ? '' : ' ghost'}">${dmgA}</span>
           </div>
           <div class="clash-mid">×</div>
           <div class="clash-side p2">
-            <span class="clash-action">${B.name}</span>
+            <span class="clash-action">${nameB}</span>
             <span class="clash-dmg${dmgB ? '' : ' ghost'}">${dmgB}</span>
           </div>
         </div>
@@ -473,10 +632,9 @@
       if (!pick) {
         return `<div class="clash-row p${i + 1}"><span class="clash-name">${playerName(i)}</span><span class="clash-action">—</span></div>`;
       }
-      const def = defs[pick.action];
-      const dmg = attackTotal(def);
-      const targetText = needsTarget(def) && pick.target != null ? ` → ${playerName(pick.target)}` : '';
-      return `<div class="clash-row p${i + 1}"><span class="clash-name">${playerName(i)}</span><span class="clash-action">${def.name}${targetText}</span><span class="clash-dmg${dmg ? '' : ' ghost'}">${dmg}</span></div>`;
+      const dmg = pickDamage(pick, defs);
+      const targetText = pickNeedsTarget(pick, defs) && pick.target != null ? ` → ${playerName(pick.target)}` : '';
+      return `<div class="clash-row p${i + 1}"><span class="clash-name">${playerName(i)}</span><span class="clash-action">${pickLabel(pick, defs)}${targetText}</span><span class="clash-dmg${dmg ? '' : ' ghost'}">${dmg}</span></div>`;
     }).join('');
     $('stageContent').innerHTML = `<div class="clash-list">${rows}</div>`;
   }
@@ -587,8 +745,106 @@
     }
   }
 
+  function cardTypeOf(card) {
+    const effects = card.effects ?? [];
+    if (effects.some((effect) => effect.kind === 'power')) return 'power';
+    if (effects.some((effect) => effect.kind === 'damage')) return 'attack';
+    return 'skill';
+  }
+
+  function energyCostEl(cost, colorClass) {
+    const wrap = document.createElement('span');
+    wrap.className = `card-cost-icons ${colorClass}`;
+    if (!cost) {
+      wrap.classList.add('free');
+      wrap.textContent = '0';
+      return wrap;
+    }
+    for (let i = 0; i < cost; i += 1) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'energy-glyph');
+      svg.setAttribute('aria-hidden', 'true');
+      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+      use.setAttribute('href', '#eg-a');
+      svg.appendChild(use);
+      wrap.appendChild(svg);
+    }
+    return wrap;
+  }
+
+  function cardButton(card, colorClass) {
+    const type = cardTypeOf(card);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `card play type-${type} tier-${card.tier}`;
+    btn.dataset.card = card.key;
+    btn.setAttribute('aria-pressed', 'false');
+
+    const top = document.createElement('div');
+    top.className = 'card-top';
+    top.appendChild(energyCostEl(card.cost, colorClass));
+    const heading = document.createElement('span');
+    heading.className = 'card-heading';
+    const name = document.createElement('span');
+    name.className = 'card-name';
+    name.textContent = card.name;
+    heading.appendChild(name);
+    top.appendChild(heading);
+
+    const art = document.createElement('div');
+    art.className = 'card-art';
+    art.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CARD_ICONS[card.key] ?? ''}</svg>`;
+
+    const text = document.createElement('p');
+    text.className = 'card-text';
+    text.textContent = card.desc;
+
+    const foot = document.createElement('div');
+    foot.className = 'card-foot';
+    const tier = document.createElement('span');
+    tier.className = 'card-tier';
+    tier.textContent = TIER_LABEL[card.tier];
+    const kind = document.createElement('span');
+    kind.className = 'card-kind';
+    kind.textContent = type === 'attack' ? '攻击' : type === 'power' ? '能力' : '技能';
+    foot.append(tier, kind);
+
+    btn.append(top, art, text, foot);
+    return btn;
+  }
+
+  function buildCardHand(grid) {
+    const cards = handCards();
+    const colorClass = `color-p${(typeof view.you === 'number' ? view.you : 0) + 1}`;
+    grid.replaceChildren();
+    for (const tier of ['basic', 'rare', 'epic']) {
+      const group = document.createElement('div');
+      group.className = 'card-group';
+      const head = document.createElement('div');
+      head.className = 'card-group-head';
+      const label = document.createElement('span');
+      label.textContent = TIER_LABEL[tier];
+      const note = document.createElement('span');
+      note.textContent = TIER_NOTE[tier];
+      head.append(label, note);
+      const row = document.createElement('div');
+      row.className = 'card-row';
+      for (const card of Object.values(cards)) {
+        if (card.tier === tier) row.appendChild(cardButton(card, colorClass));
+      }
+      group.append(head, row);
+      grid.appendChild(group);
+    }
+  }
+
   function buildActions() {
     const grid = $('actionGrid');
+    const controls = document.querySelector('.controls');
+    if (controls) controls.classList.toggle('cards-mode', cardMode());
+    if (cardMode()) {
+      buildCardHand(grid);
+      return;
+    }
     grid.replaceChildren(...Object.values(currentDefs()).map((action) => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -622,9 +878,40 @@
     renderControls();
   }
 
+  function selectCard(key) {
+    if (!isMyTurn()) return;
+    const cards = handCards();
+    const card = cards[key];
+    if (!card) return;
+    const index = selectedCards.indexOf(key);
+    if (index >= 0) {
+      selectedCards.splice(index, 1);
+    } else if (card.tier === 'epic' || selectedCards.some((item) => cards[item].tier === 'epic')) {
+      selectedCards = [key];
+    } else {
+      const sameTier = selectedCards.findIndex((item) => cards[item].tier === card.tier);
+      if (sameTier >= 0) selectedCards.splice(sameTier, 1);
+      selectedCards.push(key);
+    }
+    if (selectionNeedsTarget()) {
+      const options = targetOptions();
+      if (!options.includes(view.target)) view.target = options[0] ?? null;
+    } else {
+      view.target = null;
+    }
+    beep(view.you === 0 ? 520 : 600, 0.05, 'triangle', 0.03);
+    renderCards();
+    renderControls();
+  }
+
   function selectTarget(index) {
-    const def = selected ? currentDefs()[selected] : null;
-    if (!def || !needsTarget(def) || !isMyTurn()) return;
+    const allowed = cardMode()
+      ? selectionNeedsTarget()
+      : (() => {
+          const def = selected ? currentDefs()[selected] : null;
+          return !!def && needsTarget(def);
+        })();
+    if (!allowed || !isMyTurn()) return;
     if (!Number.isInteger(index) || index === view.you || index < 0 || index >= view.playerCount) return;
     if (view.hp[index] <= 0) return;
     if (view.target === index) return;
@@ -697,7 +984,26 @@
   }
 
   async function lockPick() {
-    if (!isMyTurn() || !selected) return;
+    if (!isMyTurn()) return;
+    if (cardMode()) {
+      if (!selectionValid() || cardCost(selectedCards) > view.en[view.you]) return;
+      if (selectionNeedsTarget() && view.target == null) return;
+      const actions = selectedCards.slice();
+      const target = view.target;
+      resetSelection();
+      busy = true;
+      renderControls();
+
+      const result = await post('/pick', { token, actions, target });
+      if (!result.ok) {
+        busy = false;
+        const locked = typeof view.you === 'number' && view.locked[view.you];
+        if (!locked) $('actionDesc').textContent = '提交失败,请重试。';
+        renderControls();
+      }
+      return;
+    }
+    if (!selected) return;
     const action = selected;
     const target = view.target;
     const def = currentDefs()[action];
@@ -732,6 +1038,7 @@
     view.log = msg.log;
     view.winner = msg.winner;
     view.round = msg.round;
+    view.bonus = msg.bonus || view.bonus;
 
     const cfgKey = JSON.stringify({
       cfg: msg.cfg,
@@ -742,8 +1049,7 @@
     if (cfgKey !== lastCfgKey) {
       lastCfgKey = cfgKey;
       view.cfg = msg.cfg;
-      selected = null;
-      view.target = null;
+      resetSelection();
       buildActions();
       renderRules();
       syncConfigInputs();
@@ -753,7 +1059,7 @@
       const isNew = msg.reveal.id !== lastRevealId;
       view.phase = 'reveal';
       view.reveal = msg.reveal;
-      selected = null;
+      resetSelection();
       busy = false;
 
       if (isNew) {
@@ -781,9 +1087,9 @@
     view.shield = msg.shield || [];
     view.reveal = msg.reveal;
 
-    if (roundChanged || msg.phase !== 'pick') selected = null;
-    if (typeof view.you === 'number' && (view.locked[view.you] || view.hp[view.you] <= 0)) selected = null;
-    if (!selected) view.target = null;
+    if (roundChanged || msg.phase !== 'pick') resetSelection();
+    if (typeof view.you === 'number' && (view.locked[view.you] || view.hp[view.you] <= 0)) resetSelection();
+    if (!selected && !selectedCards.length) view.target = null;
     if (msg.phase !== 'pick' || roundChanged || (typeof view.you === 'number' && view.locked[view.you])) {
       busy = false;
     }
@@ -794,6 +1100,11 @@
 
   function bindEvents() {
     $('actionGrid').addEventListener('click', (event) => {
+      const cardBtn = event.target.closest('button.card');
+      if (cardBtn) {
+        if (!cardBtn.disabled) selectCard(cardBtn.dataset.card);
+        return;
+      }
       const btn = event.target.closest('button.action');
       if (!btn || btn.disabled) return;
       selectAction(btn.dataset.action);

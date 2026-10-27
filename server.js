@@ -4,8 +4,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { actionDefs, resolveRound } = require('./engine.js');
-const { chooseBotPick } = require('./bot.js');
+const { actionDefs, cardDefs, resolveRound } = require('./engine.js');
+const { chooseBotPick, chooseCardPick } = require('./bot.js');
 
 const PORT = Number(process.env.PORT) || 3000;
 const ROOM_TOKENS = (process.env.ACCESS_TOKENS || process.env.ACCESS_TOKEN || '')
@@ -32,6 +32,9 @@ const DEFAULTS = {
   ultDmg: 2,
   defendReduce: 1,
 };
+
+// 卡牌模式的固定经济:血量 10、开局 2 EN、每回合 +1 EN(能量不清空)。
+const CARD_RULES = { hp: 10, startEnergy: 2, roundEnergy: 1 };
 
 function cleanToken(raw) {
   if (typeof raw !== 'string') return null;
@@ -81,6 +84,7 @@ function createRoom(accessToken) {
   hp: [1, 1, 0, 0],
   en: [0, 0, 0, 0],
   shield: [true, true, false, false],
+  bonus: [0, 0, 0, 0],
   round: 1,
   phase: 'pick', // pick | reveal | over
   picks: [null, null, null, null],
@@ -98,12 +102,14 @@ function resetGame() {
   clearTimeout(game.timer);
   game.timer = null;
   const count = game.playerCount;
+  const cards = game.ruleset === 'cards';
   game.hp = [0, 0, 0, 0];
   game.en = [0, 0, 0, 0];
   game.shield = [false, false, false, false];
+  game.bonus = [0, 0, 0, 0];
   for (let i = 0; i < count; i += 1) {
-    game.hp[i] = game.cfg.hp;
-    game.en[i] = game.cfg.startEnergy;
+    game.hp[i] = cards ? CARD_RULES.hp : game.cfg.hp;
+    game.en[i] = cards ? CARD_RULES.startEnergy : game.cfg.startEnergy;
     game.shield[i] = game.ruleset === 'full';
   }
   game.round = 1;
@@ -112,6 +118,10 @@ function resetGame() {
   game.winner = null;
   game.log = [];
   game.reveal = null;
+}
+
+function defsFor() {
+  return game.ruleset === 'cards' ? cardDefs() : actionDefs(game.cfg, game.ruleset);
 }
 
 function isLive(conn) {
@@ -184,11 +194,76 @@ function allAlivePicked() {
   return alive > 0;
 }
 
+function validTarget(seat, target, teams) {
+  return Number.isInteger(target) && target !== seat && target >= 0 && target < game.playerCount
+    && game.hp[target] > 0 && (!teams || teams[target] !== teams[seat]);
+}
+
+function targetFor(seat, target, teams) {
+  if (validTarget(seat, target, teams)) return target;
+  for (let i = 0; i < game.playerCount; i += 1) {
+    if (validTarget(seat, i, teams)) return i;
+  }
+  return null;
+}
+
+function cardNeedsTarget(actions, cards) {
+  return actions.some((key) => (cards[key]?.effects ?? []).some((effect) => (
+    (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
+  )));
+}
+
+function validCardSet(actions, cards) {
+  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 2) return false;
+  const tiers = [];
+  for (const key of actions) {
+    if (!cards[key]) return false;
+    tiers.push(cards[key].tier);
+  }
+  if (tiers.includes('epic')) return actions.length === 1;
+  if (actions.length === 1) return tiers[0] === 'basic';
+  return tiers.filter((tier) => tier === 'basic').length === 1
+    && tiers.filter((tier) => tier === 'rare').length === 1;
+}
+
 function botPickAll() {
   if (game.phase !== 'pick') return;
-  const defs = actionDefs(game.cfg, game.ruleset);
   const count = game.playerCount;
   const teams = game.teamMode === '2v2' && count === 4 ? TEAMS_2V2 : null;
+
+  if (game.ruleset === 'cards') {
+    const cards = cardDefs();
+    for (let seat = 0; seat < count; seat += 1) {
+      if (seats[seat] !== BOT_TOKEN || game.picks[seat] || game.hp[seat] <= 0) continue;
+      const choice = chooseCardPick({
+        seat,
+        playerCount: count,
+        teams,
+        hp: game.hp,
+        en: game.en,
+        damageBonus: game.bonus,
+        log: game.log,
+        round: game.round,
+      }, cards, botRandom);
+      const actions = choice && Array.isArray(choice.actions) ? choice.actions : [];
+      const cost = actions.reduce((sum, key) => sum + (cards[key]?.cost ?? 0), 0);
+      if (!validCardSet(actions, cards) || cost > game.en[seat]) {
+        game.picks[seat] = { actions: ['charge'], target: null };
+        continue;
+      }
+      const target = cardNeedsTarget(actions, cards)
+        ? targetFor(seat, choice.target, teams)
+        : null;
+      if (cardNeedsTarget(actions, cards) && target == null) {
+        game.picks[seat] = { actions: ['charge'], target: null };
+        continue;
+      }
+      game.picks[seat] = { actions, target };
+    }
+    return;
+  }
+
+  const defs = defsFor();
   for (let seat = 0; seat < count; seat += 1) {
     if (seats[seat] !== BOT_TOKEN || game.picks[seat] || game.hp[seat] <= 0) continue;
     const pick = chooseBotPick({
@@ -310,7 +385,7 @@ function setPlayerCount(count) {
 }
 
 function setRuleset(ruleset) {
-  if (ruleset !== 'minimal' && ruleset !== 'full') return;
+  if (ruleset !== 'minimal' && ruleset !== 'full' && ruleset !== 'cards') return;
   if (game.ruleset === ruleset) return;
   game.ruleset = ruleset;
   resetGame();
@@ -330,10 +405,13 @@ function stateFor(conn) {
     teams: game.teamMode === '2v2' && count === 4 ? TEAMS_2V2.slice(0, count) : null,
     bots: activeBots(),
     playerCount: count,
-    cfg: game.cfg,
+    cfg: game.ruleset === 'cards'
+      ? { ...game.cfg, hp: CARD_RULES.hp, startEnergy: CARD_RULES.startEnergy }
+      : game.cfg,
     hp: game.hp.slice(0, count),
     en: game.en.slice(0, count),
     shield: game.shield.slice(0, count),
+    bonus: game.bonus.slice(0, count),
     round: game.round,
     phase: game.phase,
     winner: game.winner,
@@ -372,6 +450,10 @@ function makeLogEntry(round, picks, result, defs) {
   const label = (index) => (seats[index] === BOT_TOKEN
     ? (botCount > 1 ? `电脑 ${index + 1}` : '电脑')
     : `玩家 ${index + 1}`);
+  const keysOf = (pick) => (Array.isArray(pick.actions) && pick.actions.length
+    ? pick.actions
+    : [pick.action]);
+  const nameOf = (pick) => keysOf(pick).map((key) => defs[key]?.name ?? key).join(' + ');
   const bits = [];
   const canceledTotal = result.canceledPairs.reduce((sum, pair) => sum + pair.amount, 0);
   if (canceledTotal) bits.push(`抵消 <b>${canceledTotal}</b>`);
@@ -390,9 +472,10 @@ function makeLogEntry(round, picks, result, defs) {
   for (let i = 0; i < count; i += 1) {
     const pick = picks[i];
     if (!pick) continue;
-    const key = pick.action;
-    if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
-      bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
+    for (const key of keysOf(pick)) {
+      if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
+        bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
+      }
     }
   }
   for (let i = 0; i < count; i += 1) {
@@ -409,8 +492,8 @@ function makeLogEntry(round, picks, result, defs) {
     }
     const delta = result.energyDelta[i];
     players.push({
-      key: pick.action,
-      name: defs[pick.action].name,
+      key: keysOf(pick)[0],
+      name: nameOf(pick),
       delta: delta ? `${delta > 0 ? '+' : '−'}${Math.abs(delta)}` : '',
       target: pick.target,
     });
@@ -420,9 +503,13 @@ function makeLogEntry(round, picks, result, defs) {
 
 function resolvePicks() {
   const count = game.playerCount;
-  const defs = actionDefs(game.cfg, game.ruleset);
+  const defs = defsFor();
   const picks = game.picks.slice(0, count);
-  const result = resolveRound(count, picks, defs, { shield: game.shield.slice(0, count) });
+  const cards = game.ruleset === 'cards';
+  const result = resolveRound(count, picks, defs, {
+    shield: game.shield.slice(0, count),
+    damageBonus: game.bonus.slice(0, count),
+  });
   const before = {
     hp: game.hp.slice(0, count),
     en: game.en.slice(0, count),
@@ -431,7 +518,10 @@ function resolvePicks() {
 
   for (let i = 0; i < count; i += 1) {
     game.en[i] += result.energyDelta[i];
+    game.bonus[i] += result.bonusAdded[i];
+    const survived = game.hp[i] - result.hpLoss[i] > 0;
     game.hp[i] = Math.max(0, game.hp[i] - result.hpLoss[i]);
+    if (cards && survived) game.en[i] += CARD_RULES.roundEnergy;
   }
   game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));
 
@@ -487,7 +577,11 @@ function resolvePicks() {
 
   broadcast();
   const plain = entry.text.replace(/<[^>]+>/g, '');
-  console.log(`[round ${tag} ${game.round}] ${picks.map((pick, i) => (pick ? `P${i + 1} ${pick.action}` : `P${i + 1} —`)).join(' vs ')} · ${plain}`);
+  console.log(`[round ${tag} ${game.round}] ${picks.map((pick, i) => {
+    if (!pick) return `P${i + 1} —`;
+    const label = Array.isArray(pick.actions) && pick.actions.length ? pick.actions.join('+') : pick.action;
+    return `P${i + 1} ${label}`;
+  }).join(' vs ')} · ${plain}`);
 }
 
 function handleEvents(req, res, url) {
@@ -528,6 +622,7 @@ function handleEvents(req, res, url) {
     else if (teamsParam === 'ffa') setTeams('ffa');
     if (rulesParam === 'full') setRuleset('full');
     else if (rulesParam === 'minimal') setRuleset('minimal');
+    else if (rulesParam === 'cards') setRuleset('cards');
   }
 
   const old = connections.get(token);
@@ -595,35 +690,59 @@ function handlePick(req, res) {
       return;
     }
 
-    const defs = actionDefs(game.cfg, game.ruleset);
-    if (typeof body.action !== 'string' || !Object.prototype.hasOwnProperty.call(defs, body.action)) {
-      respond(res, 400, { ok: false, error: 'unknown action' });
-      return;
-    }
-    const def = defs[body.action];
-    if (game.en[seat] < def.cost) {
-      respond(res, 400, { ok: false, error: 'not enough energy' });
-      return;
-    }
-
     const count = game.playerCount;
     const alive = [];
     for (let i = 0; i < count; i += 1) {
       if (game.hp[i] > 0) alive.push(i);
     }
-    const needsTarget = (def.effects ?? []).some((effect) => (
-      (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
-    ));
-    let target = Number.isInteger(body.target) ? body.target : null;
-    if (target == null || target === seat || target < 0 || target >= count || game.hp[target] <= 0) {
-      target = alive.find((index) => index !== seat) ?? null;
-    }
-    if (needsTarget && target == null) {
-      respond(res, 400, { ok: false, error: 'no target' });
-      return;
-    }
 
-    game.picks[seat] = { action: body.action, target };
+    if (game.ruleset === 'cards') {
+      const cards = cardDefs();
+      const actions = Array.isArray(body.actions) ? body.actions : [];
+      if (!validCardSet(actions, cards)) {
+        respond(res, 400, { ok: false, error: 'bad cards' });
+        return;
+      }
+      const cost = actions.reduce((sum, key) => sum + cards[key].cost, 0);
+      if (game.en[seat] < cost) {
+        respond(res, 400, { ok: false, error: 'not enough energy' });
+        return;
+      }
+      const teams = game.teamMode === '2v2' && count === 4 ? TEAMS_2V2 : null;
+      let target = null;
+      if (cardNeedsTarget(actions, cards)) {
+        target = targetFor(seat, Number.isInteger(body.target) ? body.target : null, teams);
+        if (target == null) {
+          respond(res, 400, { ok: false, error: 'no target' });
+          return;
+        }
+      }
+      game.picks[seat] = { actions, target };
+    } else {
+      const defs = defsFor();
+      if (typeof body.action !== 'string' || !Object.prototype.hasOwnProperty.call(defs, body.action)) {
+        respond(res, 400, { ok: false, error: 'unknown action' });
+        return;
+      }
+      const def = defs[body.action];
+      if (game.en[seat] < def.cost) {
+        respond(res, 400, { ok: false, error: 'not enough energy' });
+        return;
+      }
+
+      const needsTarget = (def.effects ?? []).some((effect) => (
+        (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
+      ));
+      let target = Number.isInteger(body.target) ? body.target : null;
+      if (target == null || target === seat || target < 0 || target >= count || game.hp[target] <= 0) {
+        target = alive.find((index) => index !== seat) ?? null;
+      }
+      if (needsTarget && target == null) {
+        respond(res, 400, { ok: false, error: 'no target' });
+        return;
+      }
+      game.picks[seat] = { action: body.action, target };
+    }
     if (game.mode === 'cpu') botPickAll();
     const allPicked = alive.every((index) => game.picks[index] != null);
     if (allPicked) resolvePicks();
@@ -706,7 +825,7 @@ function handleRuleset(req, res) {
       respond(res, 403, { ok: false, error: 'host only' });
       return;
     }
-    if (body.ruleset !== 'minimal' && body.ruleset !== 'full') {
+    if (body.ruleset !== 'minimal' && body.ruleset !== 'full' && body.ruleset !== 'cards') {
       respond(res, 400, { ok: false, error: 'bad ruleset' });
       return;
     }

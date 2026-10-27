@@ -483,3 +483,71 @@ test('bot-only rounds continue after all humans die', async (t) => {
   const reveal2 = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 2);
   assert.ok(reveal2.reveal);
 });
+
+async function pickCards(port, token, actions, target = null, room = '') {
+  const route = room ? `/pick?room=${encodeURIComponent(room)}` : '/pick';
+  return request(port, route, 'POST', { token, actions, target });
+}
+
+test('cards: economy, composition rules and persistent strength', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+
+  const sa = await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+  assert.deepEqual(sa.hp, [10, 10]);
+  assert.deepEqual(sa.en, [2, 2]);
+  assert.deepEqual(sa.bonus, [0, 0]);
+
+  assert.equal((await pickCards(srv.port, 'a', ['attack', 'defend'])).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', ['attack', 'attack'])).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', ['dark', 'attack'])).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', ['attack', 'slash'])).status, 400);
+
+  assert.equal((await pickCards(srv.port, 'a', ['attack'], 1)).status, 200);
+  assert.equal((await pickCards(srv.port, 'b', ['defend'])).status, 200);
+  const reveal = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(reveal.reveal.picks[0].actions, ['attack']);
+  assert.deepEqual(reveal.hp, [10, 10]);
+  assert.deepEqual(reveal.en, [2, 2]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  await pickCards(srv.port, 'a', ['charge', 'strength']);
+  await pickCards(srv.port, 'b', ['charge']);
+  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.deepEqual(second.bonus, [1, 0]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
+  await pickCards(srv.port, 'a', ['attack'], 1);
+  await pickCards(srv.port, 'b', ['charge']);
+  const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
+  assert.equal(third.hp[1], 8);
+});
+
+test('cards: cpu always submits a legal card set', async (t) => {
+  const srv = startServer();
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const h = await sse(srv.port, 'token=h&seat=0&cpu=1&rules=cards');
+  clients.push(h);
+  await waitFor(h, (m) => m.ruleset === 'cards' && m.mode === 'cpu' && m.connected[1]);
+
+  await pickCards(srv.port, 'h', ['attack'], 1);
+  const reveal = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
+  const bot = reveal.reveal.picks[1];
+  assert.ok(Array.isArray(bot.actions) && bot.actions.length >= 1 && bot.actions.length <= 2);
+  assert.equal(reveal.hp[0] + reveal.hp[1], 20);
+});
