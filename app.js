@@ -753,15 +753,24 @@
       wrap.textContent = '0';
       return wrap;
     }
-    for (let i = 0; i < cost; i += 1) {
+    const glyph = () => {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('class', 'energy-glyph');
       svg.setAttribute('aria-hidden', 'true');
       const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
       use.setAttribute('href', '#eg-a');
       svg.appendChild(use);
-      wrap.appendChild(svg);
+      return svg;
+    };
+    if (cost > 3) {
+      wrap.appendChild(glyph());
+      const num = document.createElement('span');
+      num.className = 'card-cost-num';
+      num.textContent = String(cost);
+      wrap.appendChild(num);
+      return wrap;
     }
+    for (let i = 0; i < cost; i += 1) wrap.appendChild(glyph());
     return wrap;
   }
 

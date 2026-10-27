@@ -504,8 +504,8 @@ test('cards: deals 2 basic + 3 other cards and rejects cards outside the hand', 
   clients.push(a, b);
 
   const sa = await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
-  assert.deepEqual(sa.hp, [10, 10]);
-  assert.deepEqual(sa.en, [3, 3]);
+  assert.deepEqual(sa.hp, [100, 100]);
+  assert.deepEqual(sa.en, [30, 30]);
   assert.deepEqual(sa.buff, [0, 0]);
   assert.equal(sa.hand.length, 5);
   assert.equal(new Set(sa.hand).size, 5);
@@ -549,21 +549,21 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'a', ['strength']);
   await pickCards(srv.port, 'b', []);
   const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
-  assert.deepEqual(first.buff, [2, 0]);
-  assert.equal(first.en[0], 4);
+  assert.deepEqual(first.buff, [20, 0]);
+  assert.equal(first.en[0], 40);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
   await pickCards(srv.port, 'a', ['attack'], 1);
   await pickCards(srv.port, 'b', []);
   const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
-  assert.equal(second.hp[1], 7);
+  assert.equal(second.hp[1], 70);
   assert.deepEqual(second.buff, [0, 0]);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
   await pickCards(srv.port, 'a', ['charge']);
   await pickCards(srv.port, 'b', []);
   const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
-  assert.equal(third.en[0], 11);
+  assert.equal(third.en[0], 110);
 });
 
 test('cards: cpu submits a legal, affordable subset of its hand', async (t) => {

@@ -207,7 +207,7 @@ function chooseCardPick(state, cards, random = Math.random) {
   }
 
   if (budget > 0 && (state.en[primary] ?? 0) >= 1 && random() < 0.5) take('defend');
-  if (hp[seat] != null && hp[seat] < 6 && random() < 0.5) take('heal');
+  if (hp[seat] != null && hp[seat] < 60 && random() < 0.5) take('heal');
   if (!actions.length || (budget >= cost('charge') && random() < 0.25)) take('charge');
 
   return makePick(actions);

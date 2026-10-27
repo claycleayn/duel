@@ -85,70 +85,70 @@
   function cardDefs() {
     return {
       charge: {
-        key: 'charge', name: '蓄力', tier: 'basic', cost: 1,
-        desc: '下回合获得 3 点能量。',
-        effects: [{ kind: 'energyNext', amount: 3 }],
+        key: 'charge', name: '蓄力', tier: 'basic', cost: 10,
+        desc: '下回合获得 30 点能量。',
+        effects: [{ kind: 'energyNext', amount: 30 }],
       },
       attack: {
-        key: 'attack', name: '攻击', tier: 'basic', cost: 1,
-        desc: '造成 1 点伤害。',
-        effects: [{ kind: 'damage', amount: 1, target: 'chosen' }],
+        key: 'attack', name: '攻击', tier: 'basic', cost: 10,
+        desc: '造成 10 点伤害。',
+        effects: [{ kind: 'damage', amount: 10, target: 'chosen' }],
       },
       defend: {
-        key: 'defend', name: '防御', tier: 'basic', cost: 1,
-        desc: '本回合获得 2 点格挡。',
-        effects: [{ kind: 'defense', amount: 2 }],
+        key: 'defend', name: '防御', tier: 'basic', cost: 10,
+        desc: '本回合获得 20 点格挡。',
+        effects: [{ kind: 'defense', amount: 20 }],
       },
       slash: {
-        key: 'slash', name: '连斩', tier: 'rare', cost: 4,
-        desc: '造成 1 点伤害,两次。',
+        key: 'slash', name: '连斩', tier: 'rare', cost: 40,
+        desc: '造成 10 点伤害,两次。',
         effects: [
-          { kind: 'damage', amount: 1, target: 'chosen' },
-          { kind: 'damage', amount: 1, target: 'chosen' },
+          { kind: 'damage', amount: 10, target: 'chosen' },
+          { kind: 'damage', amount: 10, target: 'chosen' },
         ],
       },
       water: {
-        key: 'water', name: '水枪', tier: 'rare', cost: 2,
-        desc: '造成 1 点穿透伤害;格挡仍然有效。',
-        effects: [{ kind: 'damage', amount: 1, target: 'chosen', piercing: true }],
+        key: 'water', name: '水枪', tier: 'rare', cost: 20,
+        desc: '造成 10 点穿透伤害;格挡仍然有效。',
+        effects: [{ kind: 'damage', amount: 10, target: 'chosen', piercing: true }],
       },
       strength: {
-        key: 'strength', name: '力量', tier: 'rare', cost: 2,
-        desc: '下一张攻击牌每段伤害 +2。',
-        effects: [{ kind: 'buff', amount: 2 }],
+        key: 'strength', name: '力量', tier: 'rare', cost: 20,
+        desc: '下一张攻击牌每段伤害 +20。',
+        effects: [{ kind: 'buff', amount: 20 }],
       },
       heal: {
-        key: 'heal', name: '恢复', tier: 'rare', cost: 3,
-        desc: '回复 1 点生命,本回合获得 1 点格挡。',
+        key: 'heal', name: '恢复', tier: 'rare', cost: 30,
+        desc: '回复 10 点生命,本回合获得 10 点格挡。',
         effects: [
-          { kind: 'heal', amount: 1 },
-          { kind: 'defense', amount: 1 },
+          { kind: 'heal', amount: 10 },
+          { kind: 'defense', amount: 10 },
         ],
       },
       dark: {
-        key: 'dark', name: '黑暗', tier: 'epic', cost: 5,
-        desc: '把受到的普通伤害转移给指定目标;没有转移任何伤害只耗 1 点。',
-        effects: [{ kind: 'transfer', mode: 'target', target: 'chosen' }],
+        key: 'dark', name: '黑暗', tier: 'epic', cost: 50,
+        desc: '把受到的普通伤害转移给指定目标;没有转移任何伤害只耗 10 点。',
+        effects: [{ kind: 'transfer', mode: 'target', target: 'chosen', refund: 10 }],
       },
       light: {
-        key: 'light', name: '光明', tier: 'epic', cost: 4,
-        desc: '把受到的普通伤害转移给攻击者;没有转移任何伤害只耗 1 点。',
-        effects: [{ kind: 'transfer', mode: 'source' }],
+        key: 'light', name: '光明', tier: 'epic', cost: 40,
+        desc: '把受到的普通伤害转移给攻击者;没有转移任何伤害只耗 10 点。',
+        effects: [{ kind: 'transfer', mode: 'source', refund: 10 }],
       },
       escape: {
-        key: 'escape', name: '逃脱', tier: 'epic', cost: 1,
+        key: 'escape', name: '逃脱', tier: 'epic', cost: 10,
         desc: '免疫本回合所有普通伤害;穿透伤害仍然命中。',
         effects: [{ kind: 'immunity' }],
       },
       execute: {
-        key: 'execute', name: '处决', tier: 'epic', cost: 5,
-        desc: '造成 3 点伤害。',
-        effects: [{ kind: 'damage', amount: 3, target: 'chosen' }],
+        key: 'execute', name: '处决', tier: 'epic', cost: 50,
+        desc: '造成 30 点伤害。',
+        effects: [{ kind: 'damage', amount: 30, target: 'chosen' }],
       },
       focus: {
-        key: 'focus', name: '聚能', tier: 'epic', cost: 5,
-        desc: '下回合获得 8 点能量。',
-        effects: [{ kind: 'energyNext', amount: 8 }],
+        key: 'focus', name: '聚能', tier: 'epic', cost: 50,
+        desc: '下回合获得 80 点能量。',
+        effects: [{ kind: 'energyNext', amount: 80 }],
       },
     };
   }
@@ -255,6 +255,7 @@
               mode: effect.mode,
               target: effect.mode === 'target' ? resolveChosen(pick, from, playerCount) : null,
               cost: def.cost ?? 0,
+              refund: effect.refund ?? 1,
             };
           } else if (effect.kind === 'immunity') {
             immunity[from] = true;
@@ -317,7 +318,7 @@
       const transfer = transfers[i];
       if (!transfer) continue;
       const fired = transferred.some((move) => move.from === i);
-      if (!fired) energyDelta[i] += transfer.cost - 1;
+      if (!fired) energyDelta[i] += transfer.cost - transfer.refund;
     }
 
     // 逃脱:免疫普通伤害;穿透伤害保留。

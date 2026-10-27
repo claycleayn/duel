@@ -33,8 +33,8 @@ const DEFAULTS = {
   defendReduce: 1,
 };
 
-// 卡牌模式的固定经济:血量 10、开局 3 EN、每回合 +3 EN(能量不清空)。
-const CARD_RULES = { hp: 10, startEnergy: 3, roundEnergy: 3 };
+// 卡牌模式的固定经济:血量 100、开局 30 EN、每回合 +30 EN(能量不清空);数值统一 ×10 便于微调。
+const CARD_RULES = { hp: 100, startEnergy: 30, roundEnergy: 30 };
 const BASIC_CARDS = ['charge', 'attack', 'defend'];
 
 function cleanToken(raw) {

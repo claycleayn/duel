@@ -213,8 +213,8 @@ test('cards: bot only plays cards from its hand and within energy', () => {
       seat: 1,
       playerCount: 2,
       teams: null,
-      hp: [10, 1],
-      en: [3, 3],
+      hp: [100, 10],
+      en: [30, 30],
       hand,
       log: [],
       round: 1,
@@ -223,7 +223,7 @@ test('cards: bot only plays cards from its hand and within energy', () => {
     assert.equal(new Set(pick.actions).size, pick.actions.length);
     assert.ok(pick.actions.every((key) => hand.includes(key)));
     const cost = pick.actions.reduce((sum, key) => sum + cardList[key].cost, 0);
-    assert.ok(cost <= 3, `cost ${cost}`);
+    assert.ok(cost <= 30, `cost ${cost}`);
     if (pick.target != null) assert.equal(pick.target, 0);
   }
 });
@@ -233,7 +233,7 @@ test('cards: bot passes when nothing is affordable', () => {
     seat: 1,
     playerCount: 2,
     teams: null,
-    hp: [10, 10],
+    hp: [100, 100],
     en: [0, 0],
     hand: ['slash', 'execute'],
     log: [],
