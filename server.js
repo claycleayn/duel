@@ -246,6 +246,19 @@ function cardNeedsTarget(actions, cards) {
   )));
 }
 
+function sequenceAffordable(actions, cards, start) {
+  let budget = start;
+  for (const key of actions) {
+    const card = cards[key];
+    if (!card || card.cost > budget) return false;
+    budget -= card.cost;
+    for (const effect of card.effects ?? []) {
+      if (effect.kind === 'energy') budget += effect.amount;
+    }
+  }
+  return true;
+}
+
 function validHandPlay(actions, hand, cards) {
   if (!Array.isArray(actions) || new Set(actions).size !== actions.length) return false;
   return actions.every((key) => typeof key === 'string' && hand.includes(key) && cards[key]);
@@ -272,8 +285,8 @@ function botPickAll() {
       }, cards, botRandom);
       const hand = game.hands[seat] || [];
       const actions = choice && Array.isArray(choice.actions) ? choice.actions : [];
-      const cost = actions.reduce((sum, key) => sum + (cards[key]?.cost ?? 0), 0);
-      if (!validHandPlay(actions, hand, cards) || cost > game.en[seat]) {
+      if (!validHandPlay(actions, hand, cards)
+        || !sequenceAffordable(actions, cards, game.en[seat])) {
         game.picks[seat] = { actions: [], target: null };
         continue;
       }
@@ -753,8 +766,7 @@ function handlePick(req, res) {
         respond(res, 400, { ok: false, error: 'bad cards' });
         return;
       }
-      const cost = actions.reduce((sum, key) => sum + cards[key].cost, 0);
-      if (game.en[seat] < cost) {
+      if (!sequenceAffordable(actions, cards, game.en[seat])) {
         respond(res, 400, { ok: false, error: 'not enough energy' });
         return;
       }
