@@ -60,6 +60,7 @@
     buff: [0, 0],
     pending: [0, 0],
     hand: [],
+    roundEnergy: 0,
     round: 1,
     phase: 'pick',
     winner: null,
@@ -336,6 +337,9 @@
       $('en' + i).hidden = cardMode();
       $('hpNum' + i).textContent = manyPips ? `${view.hp[i]}/${view.cfg.hp}` : view.hp[i];
       $('enNum' + i).textContent = view.en[i];
+      const gain = $('enGain' + i);
+      gain.hidden = !cardMode();
+      gain.textContent = view.roundEnergy ? `+${view.roundEnergy}` : '';
       const buff = view.buff?.[i] ?? 0;
       $('buff' + i).hidden = buff <= 0;
       $('buff' + i).textContent = `攻击 +${buff}`;
@@ -523,6 +527,7 @@
         <li>每回合抽 2 张基础 + 3 张其它牌;出牌张数不限,回合结束弃掉全部手牌重新抽。</li>
         <li>出牌只看能量,顺序按你点击的顺序;可以跳过不出。</li>
         <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
+        <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命。</li>
         <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
       `;
       return;
@@ -1038,6 +1043,7 @@
     view.buff = msg.buff || view.buff;
     view.pending = msg.pending || view.pending;
     view.hand = msg.hand || [];
+    view.roundEnergy = msg.roundEnergy || 0;
     if (cardMode()) {
       const handKey = JSON.stringify(view.hand);
       if (handKey !== lastHandKey) {

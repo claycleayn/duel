@@ -439,6 +439,7 @@ function stateFor(conn) {
     shield: game.shield.slice(0, count),
     buff: game.buff.slice(0, count),
     pending: game.pending.slice(0, count),
+    roundEnergy: game.ruleset === 'cards' ? CARD_RULES.roundEnergy : 0,
     hand: typeof seat === 'number' ? (game.hands[seat] || []).slice() : [],
     round: game.round,
     phase: game.phase,
@@ -540,6 +541,8 @@ function resolvePicks() {
   const result = resolveRound(count, picks, defs, {
     shield: game.shield.slice(0, count),
     attackBuff: game.buff.slice(0, count),
+    hp: game.hp.slice(0, count),
+    maxHp: CARD_RULES.hp,
   });
   const before = {
     hp: game.hp.slice(0, count),

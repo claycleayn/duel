@@ -146,3 +146,10 @@ test('cards: an empty pick is a legal pass', () => {
   assert.equal(result.incoming[0], 10);
   assert.equal(result.hpLoss[0], 10);
 });
+
+test('cards: execute adds half of the target missing health', () => {
+  const full = resolveRound(2, [aimed(1, 'execute'), null], cards, state({ hp: [100, 100], maxHp: 100 }));
+  assert.equal(full.incoming[1], 10);
+  const hurt = resolveRound(2, [aimed(1, 'execute'), null], cards, state({ hp: [100, 70], maxHp: 100 }));
+  assert.equal(hurt.incoming[1], 25);
+});

@@ -91,17 +91,17 @@
       },
       attack: {
         key: 'attack', name: '攻击', tier: 'basic', cost: 10,
-        desc: '造成 10 点伤害。',
+        desc: '攻击 10。',
         effects: [{ kind: 'damage', amount: 10, target: 'chosen' }],
       },
       defend: {
         key: 'defend', name: '防御', tier: 'basic', cost: 10,
-        desc: '本回合获得 20 点格挡。',
+        desc: '格挡 20。',
         effects: [{ kind: 'defense', amount: 20 }],
       },
       slash: {
         key: 'slash', name: '连斩', tier: 'rare', cost: 40,
-        desc: '造成 10 点伤害,两次。',
+        desc: '攻击 10*2。',
         effects: [
           { kind: 'damage', amount: 10, target: 'chosen' },
           { kind: 'damage', amount: 10, target: 'chosen' },
@@ -109,17 +109,17 @@
       },
       water: {
         key: 'water', name: '水枪', tier: 'rare', cost: 20,
-        desc: '造成 10 点穿透伤害;格挡仍然有效。',
+        desc: '攻击 10(穿透);格挡仍然有效。',
         effects: [{ kind: 'damage', amount: 10, target: 'chosen', piercing: true }],
       },
       strength: {
         key: 'strength', name: '力量', tier: 'rare', cost: 20,
-        desc: '下一张攻击牌每段伤害 +20。',
+        desc: '活力 20。',
         effects: [{ kind: 'buff', amount: 20 }],
       },
       heal: {
         key: 'heal', name: '恢复', tier: 'rare', cost: 30,
-        desc: '回复 10 点生命,本回合获得 10 点格挡。',
+        desc: '恢复 10,格挡 10。',
         effects: [
           { kind: 'heal', amount: 10 },
           { kind: 'defense', amount: 10 },
@@ -142,8 +142,8 @@
       },
       execute: {
         key: 'execute', name: '处决', tier: 'epic', cost: 50,
-        desc: '造成 30 点伤害。',
-        effects: [{ kind: 'damage', amount: 30, target: 'chosen' }],
+        desc: '伤害 10,额外造成敌人已损生命一半的伤害。',
+        effects: [{ kind: 'damage', amount: 10, target: 'chosen', execute: true }],
       },
       focus: {
         key: 'focus', name: '聚能', tier: 'epic', cost: 50,
@@ -243,8 +243,13 @@
           } else if (effect.kind === 'heal') {
             heal[from] += effect.amount;
           } else if (effect.kind === 'damage') {
-            const amount = effect.amount + cardBonus;
             for (const to of resolveTargets(effect, pick, from, playerCount)) {
+              let amount = effect.amount + cardBonus;
+              if (effect.execute) {
+                const max = state.maxHp ?? state.hp?.[to] ?? 0;
+                const missing = Math.max(0, max - (state.hp?.[to] ?? max));
+                amount += Math.floor(missing / 2);
+              }
               if (effect.piercing) piercing[from][to] += amount;
               else normal[from][to] += amount;
             }
