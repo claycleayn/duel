@@ -33,8 +33,9 @@ const DEFAULTS = {
   defendReduce: 1,
 };
 
-// 卡牌模式的固定经济:血量 10、开局 2 EN、每回合 +1 EN(能量不清空)。
-const CARD_RULES = { hp: 10, startEnergy: 2, roundEnergy: 1 };
+// 卡牌模式的固定经济:血量 10、开局 3 EN、每回合 +3 EN(能量不清空)。
+const CARD_RULES = { hp: 10, startEnergy: 3, roundEnergy: 3 };
+const BASIC_CARDS = ['charge', 'attack', 'defend'];
 
 function cleanToken(raw) {
   if (typeof raw !== 'string') return null;
@@ -54,11 +55,14 @@ function readBody(req, res, callback) {
     body += chunk;
   });
   req.on('end', () => {
+    let parsed;
     try {
-      callback(JSON.parse(body || '{}'));
+      parsed = JSON.parse(body || '{}');
     } catch (error) {
       respond(res, 400, { ok: false, error: 'bad json' });
+      return;
     }
+    callback(parsed);
   });
 }
 
@@ -84,7 +88,9 @@ function createRoom(accessToken) {
   hp: [1, 1, 0, 0],
   en: [0, 0, 0, 0],
   shield: [true, true, false, false],
-  bonus: [0, 0, 0, 0],
+  buff: [0, 0, 0, 0],
+  pending: [0, 0, 0, 0],
+  hands: [[], [], [], []],
   round: 1,
   phase: 'pick', // pick | reveal | over
   picks: [null, null, null, null],
@@ -106,12 +112,15 @@ function resetGame() {
   game.hp = [0, 0, 0, 0];
   game.en = [0, 0, 0, 0];
   game.shield = [false, false, false, false];
-  game.bonus = [0, 0, 0, 0];
+  game.buff = [0, 0, 0, 0];
+  game.pending = [0, 0, 0, 0];
+  game.hands = [[], [], [], []];
   for (let i = 0; i < count; i += 1) {
     game.hp[i] = cards ? CARD_RULES.hp : game.cfg.hp;
     game.en[i] = cards ? CARD_RULES.startEnergy : game.cfg.startEnergy;
     game.shield[i] = game.ruleset === 'full';
   }
+  if (cards) dealHands();
   game.round = 1;
   game.phase = 'pick';
   game.picks = [null, null, null, null];
@@ -122,6 +131,30 @@ function resetGame() {
 
 function defsFor() {
   return game.ruleset === 'cards' ? cardDefs() : actionDefs(game.cfg, game.ruleset);
+}
+
+function drawHand(random) {
+  const cards = cardDefs();
+  const draw = (pool, count) => {
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, count);
+  };
+  const basics = draw(BASIC_CARDS.slice(), 2);
+  const others = draw(
+    Object.values(cards).filter((card) => card.tier !== 'basic').map((card) => card.key),
+    3,
+  );
+  return basics.concat(others);
+}
+
+function dealHands() {
+  game.hands = [[], [], [], []];
+  for (let i = 0; i < game.playerCount; i += 1) {
+    game.hands[i] = game.hp[i] > 0 ? drawHand(botRandom) : [];
+  }
 }
 
 function isLive(conn) {
@@ -213,17 +246,9 @@ function cardNeedsTarget(actions, cards) {
   )));
 }
 
-function validCardSet(actions, cards) {
-  if (!Array.isArray(actions) || actions.length < 1 || actions.length > 2) return false;
-  const tiers = [];
-  for (const key of actions) {
-    if (!cards[key]) return false;
-    tiers.push(cards[key].tier);
-  }
-  if (tiers.includes('epic')) return actions.length === 1;
-  if (actions.length === 1) return tiers[0] === 'basic';
-  return tiers.filter((tier) => tier === 'basic').length === 1
-    && tiers.filter((tier) => tier === 'rare').length === 1;
+function validHandPlay(actions, hand, cards) {
+  if (!Array.isArray(actions) || new Set(actions).size !== actions.length) return false;
+  return actions.every((key) => typeof key === 'string' && hand.includes(key) && cards[key]);
 }
 
 function botPickAll() {
@@ -241,21 +266,22 @@ function botPickAll() {
         teams,
         hp: game.hp,
         en: game.en,
-        damageBonus: game.bonus,
+        hand: game.hands[seat] || [],
         log: game.log,
         round: game.round,
       }, cards, botRandom);
+      const hand = game.hands[seat] || [];
       const actions = choice && Array.isArray(choice.actions) ? choice.actions : [];
       const cost = actions.reduce((sum, key) => sum + (cards[key]?.cost ?? 0), 0);
-      if (!validCardSet(actions, cards) || cost > game.en[seat]) {
-        game.picks[seat] = { actions: ['charge'], target: null };
+      if (!validHandPlay(actions, hand, cards) || cost > game.en[seat]) {
+        game.picks[seat] = { actions: [], target: null };
         continue;
       }
       const target = cardNeedsTarget(actions, cards)
         ? targetFor(seat, choice.target, teams)
         : null;
       if (cardNeedsTarget(actions, cards) && target == null) {
-        game.picks[seat] = { actions: ['charge'], target: null };
+        game.picks[seat] = { actions: [], target: null };
         continue;
       }
       game.picks[seat] = { actions, target };
@@ -411,7 +437,9 @@ function stateFor(conn) {
     hp: game.hp.slice(0, count),
     en: game.en.slice(0, count),
     shield: game.shield.slice(0, count),
-    bonus: game.bonus.slice(0, count),
+    buff: game.buff.slice(0, count),
+    pending: game.pending.slice(0, count),
+    hand: typeof seat === 'number' ? (game.hands[seat] || []).slice() : [],
     round: game.round,
     phase: game.phase,
     winner: game.winner,
@@ -453,7 +481,10 @@ function makeLogEntry(round, picks, result, defs) {
   const keysOf = (pick) => (Array.isArray(pick.actions) && pick.actions.length
     ? pick.actions
     : [pick.action]);
-  const nameOf = (pick) => keysOf(pick).map((key) => defs[key]?.name ?? key).join(' + ');
+  const nameOf = (pick) => {
+    const keys = keysOf(pick);
+    return keys.length ? keys.map((key) => defs[key]?.name ?? key).join(' + ') : '跳过';
+  };
   const bits = [];
   const canceledTotal = result.canceledPairs.reduce((sum, pair) => sum + pair.amount, 0);
   if (canceledTotal) bits.push(`抵消 <b>${canceledTotal}</b>`);
@@ -508,7 +539,7 @@ function resolvePicks() {
   const cards = game.ruleset === 'cards';
   const result = resolveRound(count, picks, defs, {
     shield: game.shield.slice(0, count),
-    damageBonus: game.bonus.slice(0, count),
+    attackBuff: game.buff.slice(0, count),
   });
   const before = {
     hp: game.hp.slice(0, count),
@@ -518,10 +549,18 @@ function resolvePicks() {
 
   for (let i = 0; i < count; i += 1) {
     game.en[i] += result.energyDelta[i];
-    game.bonus[i] += result.bonusAdded[i];
+    game.buff[i] += result.buffAdded[i] - result.buffUsed[i];
     const survived = game.hp[i] - result.hpLoss[i] > 0;
     game.hp[i] = Math.max(0, game.hp[i] - result.hpLoss[i]);
-    if (cards && survived) game.en[i] += CARD_RULES.roundEnergy;
+    if (survived && result.heal[i]) {
+      game.hp[i] = Math.min(CARD_RULES.hp, game.hp[i] + result.heal[i]);
+    }
+    if (cards) {
+      game.en[i] = survived
+        ? game.en[i] + CARD_RULES.roundEnergy + game.pending[i] + result.energyNext[i]
+        : Math.max(0, game.en[i]);
+      game.pending[i] = 0;
+    }
   }
   game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));
 
@@ -566,6 +605,7 @@ function resolvePicks() {
       game.picks = [null, null, null, null];
       game.phase = 'pick';
       game.reveal = null;
+      if (cards) dealHands();
       botPickAll();
       if (allAlivePicked()) {
         resolvePicks();
@@ -699,7 +739,7 @@ function handlePick(req, res) {
     if (game.ruleset === 'cards') {
       const cards = cardDefs();
       const actions = Array.isArray(body.actions) ? body.actions : [];
-      if (!validCardSet(actions, cards)) {
+      if (!validHandPlay(actions, game.hands[seat] || [], cards)) {
         respond(res, 400, { ok: false, error: 'bad cards' });
         return;
       }
@@ -921,6 +961,8 @@ function handleTeams(req, res) {
       phase: game.phase,
       round: game.round,
       shield: game.shield,
+      buff: game.buff,
+      pending: game.pending,
       seats: game.picks.map(Boolean),
     }),
   };

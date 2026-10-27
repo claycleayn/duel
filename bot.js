@@ -169,43 +169,48 @@ function chooseCardPick(state, cards, random = Math.random) {
   if (!targets.length) return null;
 
   const primary = choosePrimary(state, targets, random);
+  const hand = Array.isArray(state.hand) ? state.hand.filter((key) => cards[key]) : [];
   const en = state.en[seat] ?? 0;
-  const bonus = state.damageBonus?.[seat] ?? 0;
-  const hpOf = (i) => hp[i] ?? 10;
-  const cost = (key) => cards[key].cost;
-  const damageOf = (key) => (cards[key].effects || [])
-    .filter((effect) => effect.kind === 'damage')
-    .reduce((sum, effect) => sum + effect.amount, 0);
   const needsTarget = (key) => (cards[key].effects || []).some((effect) => (
     (effect.kind === 'damage' || effect.kind === 'transfer') && effect.target === 'chosen'
   ));
-  const pick = (actions) => ({
+  const makePick = (actions) => ({
     actions,
     target: actions.some(needsTarget) ? primary : null,
   });
+  const cost = (key) => cards[key].cost;
+  const has = (key) => hand.includes(key);
+  const damageOf = (key) => (cards[key].effects || [])
+    .filter((effect) => effect.kind === 'damage')
+    .reduce((sum, effect) => sum + effect.amount, 0);
+  if (!hand.length) return makePick([]);
 
-  if (en >= cost('execute') && hpOf(primary) <= damageOf('execute') + bonus) {
-    return pick(['execute']);
-  }
-  if (en >= cost('dark') && (state.en[primary] ?? 0) >= cost('slash') && random() < 0.6) {
-    return pick(['dark']);
-  }
-  if (en >= cost('light') && random() < 0.25) return pick(['light']);
+  const actions = [];
+  let budget = en;
+  const take = (key) => {
+    if (!has(key) || cost(key) > budget) return false;
+    actions.push(key);
+    budget -= cost(key);
+    return true;
+  };
 
-  let basic = 'charge';
-  if (en >= cost('attack')) {
-    const lethal = hpOf(primary) <= damageOf('attack') + bonus;
-    basic = lethal || random() < 0.55 ? 'attack' : 'defend';
+  const damageKeys = hand
+    .filter((key) => damageOf(key) > 0)
+    .sort((a, b) => damageOf(b) - damageOf(a));
+  if (damageKeys.length && has('strength')) take('strength');
+
+  const enemyHp = hp[primary] ?? 10;
+  let dealt = 0;
+  for (const key of damageKeys) {
+    if (dealt >= enemyHp) break;
+    if (take(key)) dealt += damageOf(key);
   }
 
-  const budget = en - cost(basic);
-  const rares = ['slash', 'water', 'strength', 'focus'].filter((key) => cost(key) <= budget);
-  let rare = null;
-  if (rares.includes('strength') && bonus < 3 && random() < 0.5) rare = 'strength';
-  else if (rares.includes('slash')) rare = 'slash';
-  else if (rares.includes('focus') && random() < 0.5) rare = 'focus';
-  else if (rares.includes('water')) rare = 'water';
-  return pick(rare ? [basic, rare] : [basic]);
+  if (budget > 0 && (state.en[primary] ?? 0) >= 1 && random() < 0.5) take('defend');
+  if (hp[seat] != null && hp[seat] < 6 && random() < 0.5) take('heal');
+  if (!actions.length || (budget >= cost('charge') && random() < 0.25)) take('charge');
+
+  return makePick(actions);
 }
 
 module.exports = { chooseBotPick, chooseCardPick };

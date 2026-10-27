@@ -11,19 +11,24 @@ const state = (extra = {}) => ({
   hp: [10, 10],
   en: [0, 0],
   shield: [false, false],
-  damageBonus: [0, 0],
+  attackBuff: [0, 0],
   ...extra,
 });
 
-test('card catalog: tiers, costs and unique keys', () => {
+test('card catalog: tiers, costs and effects', () => {
   const keys = Object.keys(cards);
   assert.equal(new Set(keys).size, keys.length);
   for (const key of ['charge', 'attack', 'defend']) assert.equal(cards[key].tier, 'basic');
-  assert.equal(cards.slash.tier, 'rare');
-  assert.equal(cards.strength.tier, 'rare');
-  assert.equal(cards.dark.tier, 'epic');
-  assert.equal(cards.execute.tier, 'epic');
-  assert.ok(cards.execute.cost >= cards.slash.cost);
+  assert.equal(cards.charge.cost, 1);
+  assert.equal(cards.defend.effects[0].amount, 2);
+  assert.equal(cards.slash.cost, 4);
+  assert.equal(cards.slash.effects.filter((effect) => effect.kind === 'damage').length, 2);
+  assert.equal(cards.water.cost, 2);
+  assert.equal(cards.strength.effects[0].kind, 'buff');
+  assert.equal(cards.heal.tier, 'rare');
+  assert.equal(cards.focus.tier, 'epic');
+  assert.equal(cards.focus.cost, 5);
+  assert.equal(cards.focus.effects[0].amount, 8);
   for (const def of Object.values(cards)) {
     assert.equal(typeof def.cost, 'number');
     assert.ok(Array.isArray(def.effects) && def.effects.length > 0);
@@ -31,20 +36,64 @@ test('card catalog: tiers, costs and unique keys', () => {
 });
 
 test('cards: damage from both cards stacks on the same target', () => {
-  const result = resolveRound(2, [pick('attack', 'slash'), null], cards, state());
+  const result = resolveRound(2, [pick('attack', 'water'), null], cards, state());
+  assert.equal(result.incoming[1], 2);
+  assert.equal(result.hpLoss[1], 2);
+});
+
+test('cards: charge pays now and pays out next round', () => {
+  const result = resolveRound(2, [pick('charge'), null], cards, state());
+  assert.equal(result.energyDelta[0], -1);
+  assert.equal(result.energyNext[0], 3);
+});
+
+test('cards: focus pays out 8 energy next round', () => {
+  const result = resolveRound(2, [pick('focus'), null], cards, state());
+  assert.equal(result.energyDelta[0], -5);
+  assert.equal(result.energyNext[0], 8);
+});
+
+test('cards: strength adds +2 to every hit of the next attack card', () => {
+  const result = resolveRound(2, [pick('strength', 'slash'), null], cards, state());
+  assert.equal(result.incoming[1], 6);
+  assert.equal(result.buffAdded[0], 0);
+});
+
+test('cards: strength only buffs the first attack card played', () => {
+  const result = resolveRound(2, [pick('strength', 'attack', 'slash'), null], cards, state());
+  assert.equal(result.incoming[1], 5);
+});
+
+test('cards: strength waits when no attack card is played', () => {
+  const result = resolveRound(2, [pick('strength'), null], cards, state());
+  assert.equal(result.buffAdded[0], 2);
+  assert.equal(result.buffUsed[0], 0);
+  assert.equal(result.incoming[1], 0);
+});
+
+test('cards: a stored buff is consumed by the next attack', () => {
+  const result = resolveRound(2, [pick('attack'), null], cards, state({ attackBuff: [2, 0] }));
   assert.equal(result.incoming[1], 3);
-  assert.equal(result.hpLoss[1], 3);
+  assert.equal(result.buffUsed[0], 2);
+  assert.equal(result.buffAdded[0], 0);
 });
 
-test('cards: energy gain and cost from both cards net out', () => {
-  const result = resolveRound(2, [pick('charge', 'focus'), null], cards, state());
-  assert.equal(result.energyDelta[0], 2);
-});
-
-test('cards: block from one card covers the whole round', () => {
+test('cards: heal returns health and adds 1 block', () => {
   const result = resolveRound(
     2,
-    [{ actions: ['defend'], target: null }, aimed(0, 'slash')],
+    [pick('heal'), aimed(0, 'attack')],
+    cards,
+    state(),
+  );
+  assert.equal(result.blocked[0], 1);
+  assert.equal(result.hpLoss[0], 0);
+  assert.equal(result.heal[0], 1);
+});
+
+test('cards: two 1-damage hits are covered by 2 block', () => {
+  const result = resolveRound(
+    2,
+    [pick('defend'), aimed(0, 'slash')],
     cards,
     state(),
   );
@@ -56,35 +105,13 @@ test('cards: block from one card covers the whole round', () => {
 test('cards: mutual attacks cancel point by point before block', () => {
   const result = resolveRound(
     2,
-    [pick('attack', 'slash'), aimed(0, 'attack')],
+    [pick('attack', 'water'), aimed(0, 'attack')],
     cards,
     state(),
   );
   assert.equal(result.canceledPairs[0].amount, 1);
-  assert.equal(result.hpLoss[1], 2);
+  assert.equal(result.hpLoss[1], 1);
   assert.equal(result.hpLoss[0], 0);
-});
-
-test('cards: strength applies this round and is reported for persistence', () => {
-  const result = resolveRound(
-    2,
-    [pick('strength', 'attack'), null],
-    cards,
-    state(),
-  );
-  assert.equal(result.bonusAdded[0], 1);
-  assert.equal(result.incoming[1], 2);
-});
-
-test('cards: stored strength adds to later damage', () => {
-  const result = resolveRound(
-    2,
-    [pick('execute'), null],
-    cards,
-    state({ damageBonus: [2, 0] }),
-  );
-  assert.equal(result.incoming[1], 5);
-  assert.equal(result.bonusAdded[0], 0);
 });
 
 test('cards: light refunds to 1 energy when nothing is transferred', () => {
@@ -110,4 +137,11 @@ test('cards: unknown card in a pick throws', () => {
     () => resolveRound(2, [pick('attack', 'nope'), null], cards, state()),
     /Unknown action/,
   );
+});
+
+test('cards: an empty pick is a legal pass', () => {
+  const result = resolveRound(2, [{ actions: [], target: null }, pick('attack')], cards, state());
+  assert.equal(result.energyDelta[0], 0);
+  assert.equal(result.incoming[0], 1);
+  assert.equal(result.hpLoss[0], 1);
 });

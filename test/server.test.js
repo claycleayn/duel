@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
 const path = require('node:path');
+const { cardDefs } = require('../engine.js');
 
 const ROOT = path.join(__dirname, '..');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -489,7 +490,7 @@ async function pickCards(port, token, actions, target = null, room = '') {
   return request(port, route, 'POST', { token, actions, target });
 }
 
-test('cards: economy, composition rules and persistent strength', async (t) => {
+test('cards: deals 2 basic + 3 other cards and rejects cards outside the hand', async (t) => {
   const srv = startServer();
   const clients = [];
   t.after(() => {
@@ -504,35 +505,68 @@ test('cards: economy, composition rules and persistent strength', async (t) => {
 
   const sa = await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
   assert.deepEqual(sa.hp, [10, 10]);
-  assert.deepEqual(sa.en, [2, 2]);
-  assert.deepEqual(sa.bonus, [0, 0]);
+  assert.deepEqual(sa.en, [3, 3]);
+  assert.deepEqual(sa.buff, [0, 0]);
+  assert.equal(sa.hand.length, 5);
+  assert.equal(new Set(sa.hand).size, 5);
+  const basics = sa.hand.filter((key) => ['charge', 'attack', 'defend'].includes(key));
+  assert.equal(basics.length, 2);
+  for (const key of sa.hand) assert.ok(cardDefs()[key], key);
 
-  assert.equal((await pickCards(srv.port, 'a', ['attack', 'defend'])).status, 400);
-  assert.equal((await pickCards(srv.port, 'a', ['attack', 'attack'])).status, 400);
-  assert.equal((await pickCards(srv.port, 'a', ['dark', 'attack'])).status, 400);
-  assert.equal((await pickCards(srv.port, 'a', ['attack', 'slash'])).status, 400);
+  const outside = Object.keys(cardDefs()).find((key) => !sa.hand.includes(key));
+  assert.equal((await pickCards(srv.port, 'a', [outside])).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', [sa.hand[0], sa.hand[0]])).status, 400);
+  assert.equal((await pickCards(srv.port, 'a', sa.hand)).status, 400);
 
-  assert.equal((await pickCards(srv.port, 'a', ['attack'], 1)).status, 200);
-  assert.equal((await pickCards(srv.port, 'b', ['defend'])).status, 200);
+  const first = basics[0];
+  assert.equal((await pickCards(srv.port, 'a', [first])).status, 200);
+  assert.equal((await pickCards(srv.port, 'b', [])).status, 200);
   const reveal = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
-  assert.deepEqual(reveal.reveal.picks[0].actions, ['attack']);
-  assert.deepEqual(reveal.hp, [10, 10]);
-  assert.deepEqual(reveal.en, [2, 2]);
+  assert.deepEqual(reveal.reveal.picks[0].actions, [first]);
+  assert.deepEqual(reveal.reveal.picks[1].actions, []);
 
-  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
-  await pickCards(srv.port, 'a', ['charge', 'strength']);
-  await pickCards(srv.port, 'b', ['charge']);
-  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
-  assert.deepEqual(second.bonus, [1, 0]);
-
-  await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
-  await pickCards(srv.port, 'a', ['attack'], 1);
-  await pickCards(srv.port, 'b', ['charge']);
-  const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
-  assert.equal(third.hp[1], 8);
+  const next = await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  assert.equal(next.hand.length, 5);
+  assert.equal(next.hand.filter((key) => ['charge', 'attack', 'defend'].includes(key)).length, 2);
 });
 
-test('cards: cpu always submits a legal card set', async (t) => {
+test('cards: strength buffs the next attack card, charge pays out next round', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.75' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+
+  const sa = await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+  assert.deepEqual(sa.hand.slice().sort(), ['attack', 'charge', 'slash', 'strength', 'water']);
+
+  await pickCards(srv.port, 'a', ['strength']);
+  await pickCards(srv.port, 'b', []);
+  const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(first.buff, [2, 0]);
+  assert.equal(first.en[0], 4);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  await pickCards(srv.port, 'a', ['attack'], 1);
+  await pickCards(srv.port, 'b', []);
+  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.equal(second.hp[1], 7);
+  assert.deepEqual(second.buff, [0, 0]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
+  await pickCards(srv.port, 'a', ['charge']);
+  await pickCards(srv.port, 'b', []);
+  const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
+  assert.equal(third.en[0], 11);
+});
+
+test('cards: cpu submits a legal, affordable subset of its hand', async (t) => {
   const srv = startServer();
   const clients = [];
   t.after(() => {
@@ -543,11 +577,14 @@ test('cards: cpu always submits a legal card set', async (t) => {
 
   const h = await sse(srv.port, 'token=h&seat=0&cpu=1&rules=cards');
   clients.push(h);
-  await waitFor(h, (m) => m.ruleset === 'cards' && m.mode === 'cpu' && m.connected[1]);
+  const init = await waitFor(h, (m) => m.ruleset === 'cards' && m.mode === 'cpu' && m.connected[1]);
+  const first = init.hand.find((key) => cardDefs()[key].cost <= init.en[0]);
+  assert.equal((await pickCards(srv.port, 'h', [first])).status, 200);
 
-  await pickCards(srv.port, 'h', ['attack'], 1);
   const reveal = await waitFor(h, (m) => m.phase === 'reveal' && m.round === 1);
   const bot = reveal.reveal.picks[1];
-  assert.ok(Array.isArray(bot.actions) && bot.actions.length >= 1 && bot.actions.length <= 2);
-  assert.equal(reveal.hp[0] + reveal.hp[1], 20);
+  assert.ok(Array.isArray(bot.actions));
+  assert.equal(new Set(bot.actions).size, bot.actions.length);
+  const cost = bot.actions.reduce((sum, key) => sum + cardDefs()[key].cost, 0);
+  assert.ok(cost <= init.en[1], `cost ${cost} > ${init.en[1]}`);
 });

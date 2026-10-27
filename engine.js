@@ -78,15 +78,16 @@
   }
 
   /*
-   * 卡牌模式:每个玩家每回合打 1 张基础 + 1 张稀有,或者单独 1 张史诗。
-   * 费用与能量图标一致;tier 只用于出牌规则,结算仍走同一条管线。
+   * 卡牌模式:每回合抽 2 张基础 + 3 张其它牌,手牌内可任意出,费用受能量限制。
+   * 结算仍走同一条管线;energyNext(下回合能量)与 buff(下一张攻击牌加伤)
+   * 由服务端在回合之间保存。
    */
   function cardDefs() {
     return {
       charge: {
-        key: 'charge', name: '蓄力', tier: 'basic', cost: 0,
-        desc: '获得 1 点能量。',
-        effects: [{ kind: 'energy', amount: 1 }],
+        key: 'charge', name: '蓄力', tier: 'basic', cost: 1,
+        desc: '下回合获得 3 点能量。',
+        effects: [{ kind: 'energyNext', amount: 3 }],
       },
       attack: {
         key: 'attack', name: '攻击', tier: 'basic', cost: 1,
@@ -95,28 +96,34 @@
       },
       defend: {
         key: 'defend', name: '防御', tier: 'basic', cost: 1,
-        desc: '本回合获得 3 点格挡。',
-        effects: [{ kind: 'defense', amount: 3 }],
+        desc: '本回合获得 2 点格挡。',
+        effects: [{ kind: 'defense', amount: 2 }],
       },
       slash: {
-        key: 'slash', name: '连斩', tier: 'rare', cost: 2,
-        desc: '造成 2 点伤害。',
-        effects: [{ kind: 'damage', amount: 2, target: 'chosen' }],
+        key: 'slash', name: '连斩', tier: 'rare', cost: 4,
+        desc: '造成 1 点伤害,两次。',
+        effects: [
+          { kind: 'damage', amount: 1, target: 'chosen' },
+          { kind: 'damage', amount: 1, target: 'chosen' },
+        ],
       },
       water: {
-        key: 'water', name: '水枪', tier: 'rare', cost: 3,
-        desc: '造成 1 点穿透伤害;防御仍然有效。',
+        key: 'water', name: '水枪', tier: 'rare', cost: 2,
+        desc: '造成 1 点穿透伤害;格挡仍然有效。',
         effects: [{ kind: 'damage', amount: 1, target: 'chosen', piercing: true }],
-      },
-      focus: {
-        key: 'focus', name: '聚能', tier: 'rare', cost: 1,
-        desc: '获得 2 点能量。',
-        effects: [{ kind: 'energy', amount: 2 }],
       },
       strength: {
         key: 'strength', name: '力量', tier: 'rare', cost: 2,
-        desc: '永久:你的伤害牌 +1 伤害。',
-        effects: [{ kind: 'power', amount: 1 }],
+        desc: '下一张攻击牌每段伤害 +2。',
+        effects: [{ kind: 'buff', amount: 2 }],
+      },
+      heal: {
+        key: 'heal', name: '恢复', tier: 'rare', cost: 3,
+        desc: '回复 1 点生命,本回合获得 1 点格挡。',
+        effects: [
+          { kind: 'heal', amount: 1 },
+          { kind: 'defense', amount: 1 },
+        ],
       },
       dark: {
         key: 'dark', name: '黑暗', tier: 'epic', cost: 5,
@@ -138,14 +145,16 @@
         desc: '造成 3 点伤害。',
         effects: [{ kind: 'damage', amount: 3, target: 'chosen' }],
       },
+      focus: {
+        key: 'focus', name: '聚能', tier: 'epic', cost: 5,
+        desc: '下回合获得 8 点能量。',
+        effects: [{ kind: 'energyNext', amount: 8 }],
+      },
     };
   }
 
   function pickDefs(pick, defs) {
-    const keys = Array.isArray(pick.actions) && pick.actions.length
-      ? pick.actions
-      : pick.action ? [pick.action] : [];
-    if (!keys.length) throw new Error('Empty pick');
+    const keys = Array.isArray(pick.actions) ? pick.actions : pick.action ? [pick.action] : [];
     return keys.map((key) => {
       const def = defs[key];
       if (!def) throw new Error(`Unknown action: ${key}`);
@@ -199,34 +208,48 @@
     const normal = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
     const piercing = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
 
-    const bonusAdded = Array(playerCount).fill(0);
+    const heal = Array(playerCount).fill(0);
+    const energyNext = Array(playerCount).fill(0);
+    const buffAdded = Array(playerCount).fill(0);
+    const buffUsed = Array(playerCount).fill(0);
 
     for (let from = 0; from < playerCount; from += 1) {
       const pick = picks[from];
       if (!pick) continue;
       const list = pickDefs(pick, defs);
-
-      // 力量这类永久增益先结算,同一回合的伤害牌也能吃到。
-      for (const def of list) {
-        for (const effect of def.effects ?? []) {
-          if (effect.kind === 'power') bonusAdded[from] += effect.amount;
-        }
-      }
-      const bonus = (state.damageBonus?.[from] ?? 0) + bonusAdded[from];
+      if (!list.length) continue;
+      let carried = state.attackBuff?.[from] ?? 0;
+      let added = 0;
 
       for (const def of list) {
         energyDelta[from] -= def.cost ?? 0;
-        for (const effect of def.effects ?? []) {
+        const effects = def.effects ?? [];
+        const isAttack = effects.some((effect) => effect.kind === 'damage');
+        let cardBonus = 0;
+        // 力量只加「下一张攻击牌」;按出牌顺序,这张牌的所有伤害段都吃加成。
+        if (isAttack && carried + added > 0) {
+          cardBonus = carried + added;
+          buffUsed[from] += carried;
+          carried = 0;
+          added = 0;
+        }
+        for (const effect of effects) {
           if (effect.kind === 'energy') {
             energyDelta[from] += effect.amount;
+          } else if (effect.kind === 'energyNext') {
+            energyNext[from] += effect.amount;
           } else if (effect.kind === 'defense') {
             defense[from] += effect.amount;
+          } else if (effect.kind === 'heal') {
+            heal[from] += effect.amount;
           } else if (effect.kind === 'damage') {
-            const amount = effect.amount + bonus;
+            const amount = effect.amount + cardBonus;
             for (const to of resolveTargets(effect, pick, from, playerCount)) {
               if (effect.piercing) piercing[from][to] += amount;
               else normal[from][to] += amount;
             }
+          } else if (effect.kind === 'buff') {
+            added += effect.amount;
           } else if (effect.kind === 'transfer') {
             transfers[from] = {
               mode: effect.mode,
@@ -238,6 +261,7 @@
           }
         }
       }
+      buffAdded[from] = added;
     }
 
     // 相互攻击逐点抵消。按无序对遍历,人数增加时复杂度是 O(n²),不是组合爆炸。
@@ -329,7 +353,10 @@
 
     return {
       energyDelta,
-      bonusAdded,
+      energyNext,
+      heal,
+      buffAdded,
+      buffUsed,
       defense,
       normal,
       piercing,

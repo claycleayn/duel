@@ -42,7 +42,6 @@
   };
 
   const TIER_LABEL = { basic: '基础', rare: '稀有', epic: '史诗' };
-  const TIER_NOTE = { basic: '任意 1 张', rare: '与基础牌搭配', epic: '单独出 1 张' };
 
   const view = {
     online: false,
@@ -58,7 +57,9 @@
     hp: [1, 1],
     en: [0, 0],
     shield: [false, false],
-    bonus: [0, 0],
+    buff: [0, 0],
+    pending: [0, 0],
+    hand: [],
     round: 1,
     phase: 'pick',
     winner: null,
@@ -89,6 +90,7 @@
   let audioCtx = null;
   let lastRevealId = -1;
   let lastCfgKey = '';
+  let lastHandKey = '';
   let lastRound = 0;
 
   function getToken(seat) {
@@ -161,19 +163,6 @@
   function selectionNeedsTarget() {
     const cards = handCards();
     return selectedCards.some((key) => needsTarget(cards[key]));
-  }
-
-  function selectionValid() {
-    const cards = handCards();
-    const count = selectedCards.length;
-    if (!count) return false;
-    const tiers = selectedCards.map((key) => cards[key]?.tier);
-    if (tiers.includes(undefined)) return false;
-    if (tiers.includes('epic')) return count === 1;
-    if (count === 1) return tiers[0] === 'basic';
-    return count === 2
-      && tiers.filter((tier) => tier === 'basic').length === 1
-      && tiers.filter((tier) => tier === 'rare').length === 1;
   }
 
   function resetSelection() {
@@ -347,9 +336,12 @@
       $('en' + i).hidden = cardMode();
       $('hpNum' + i).textContent = manyPips ? `${view.hp[i]}/${view.cfg.hp}` : view.hp[i];
       $('enNum' + i).textContent = view.en[i];
-      const bonus = view.bonus?.[i] ?? 0;
-      $('power' + i).hidden = bonus <= 0;
-      $('power' + i).textContent = `力量 +${bonus}`;
+      const buff = view.buff?.[i] ?? 0;
+      $('buff' + i).hidden = buff <= 0;
+      $('buff' + i).textContent = `攻击 +${buff}`;
+      const pending = view.pending?.[i] ?? 0;
+      $('pending' + i).hidden = pending <= 0;
+      $('pending' + i).textContent = `下回合 +${pending} EN`;
       $('shield' + i).hidden = !view.shield[i];
       const team = view.teams ? view.teams[i] : null;
       const teamMark = $('team' + i);
@@ -371,7 +363,8 @@
   }
 
   function pickLabel(pick, defs) {
-    return pickKeys(pick).map((key) => defs[key]?.name ?? key).join(' + ');
+    const keys = pickKeys(pick);
+    return keys.length ? keys.map((key) => defs[key]?.name ?? key).join(' + ') : '跳过';
   }
 
   function renderCardControls() {
@@ -388,6 +381,8 @@
       btn.disabled = !pickable || energy < otherCost + card.cost;
       btn.classList.toggle('selected', isSelected);
       btn.setAttribute('aria-pressed', String(isSelected));
+      if (isSelected) btn.dataset.order = String(selectedCards.indexOf(btn.dataset.card) + 1);
+      else delete btn.dataset.order;
     });
 
     const targetNeeded = selectionNeedsTarget();
@@ -412,20 +407,18 @@
       const label = pickLabel(pick, cards);
       desc = label
         ? `已锁定:${label}${pick.target != null ? ` → ${playerName(pick.target)}` : ''} · 等待其他玩家…`
-        : '已锁定,等待其他玩家…';
+        : '已锁定:跳过 · 等待其他玩家…';
     } else if (selectedCards.length) {
       const label = selectedCards.map((key) => cards[key].name).join(' + ');
-      const invalid = selectionValid() ? '' : ' · 还需要 1 张基础牌';
       const aim = targetNeeded ? ' · 点击上方玩家卡片选择目标' : '';
-      desc = `${label} · 共 ${spent} 能量${invalid}${aim}`;
+      desc = `${label} · 共 ${spent} 能量${aim}`;
     } else {
-      desc = '选 1 张基础 + 1 张稀有,或单独 1 张史诗。';
+      desc = '选择要打出的牌(张数不限),也可以直接跳过。';
     }
     $('actionDesc').textContent = desc;
 
     const lock = $('lockBtn');
-    lock.disabled = !pickable || !selectionValid() || spent > energy
-      || (targetNeeded && view.target == null);
+    lock.disabled = !pickable || spent > energy || (targetNeeded && view.target == null);
     lock.textContent = '锁定行动';
   }
 
@@ -526,10 +519,10 @@
         `<dt>${card.name} <span class="rule-cost">${card.cost} EN</span></dt><dd>${card.desc}</dd>`
       )).join('');
       $('rulesNotes').innerHTML = `
-        <li>能量不清空:开局 2 点,每回合自动 +1;蓄力/聚能再额外加。</li>
-        <li>每回合出 1 张基础 + 1 张稀有,或单独 1 张史诗;也可以只出 1 张基础。</li>
-        <li>开局 10 点血量;防御的格挡只在本回合有效。</li>
-        <li>力量是永久增益:之后你的每张伤害牌都 +1,可以叠加。</li>
+        <li>能量不清空:开局 3 点,每回合自动 +3;蓄力/聚能是下回合给能量。</li>
+        <li>每回合抽 2 张基础 + 3 张其它牌;出牌张数不限,回合结束弃掉全部手牌重新抽。</li>
+        <li>出牌只看能量,顺序按你点击的顺序;可以跳过不出。</li>
+        <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
         <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
       `;
       return;
@@ -747,7 +740,7 @@
 
   function cardTypeOf(card) {
     const effects = card.effects ?? [];
-    if (effects.some((effect) => effect.kind === 'power')) return 'power';
+    if (effects.some((effect) => effect.kind === 'buff')) return 'power';
     if (effects.some((effect) => effect.kind === 'damage')) return 'attack';
     return 'skill';
   }
@@ -817,24 +810,23 @@
     const cards = handCards();
     const colorClass = `color-p${(typeof view.you === 'number' ? view.you : 0) + 1}`;
     grid.replaceChildren();
-    for (const tier of ['basic', 'rare', 'epic']) {
-      const group = document.createElement('div');
-      group.className = 'card-group';
-      const head = document.createElement('div');
-      head.className = 'card-group-head';
-      const label = document.createElement('span');
-      label.textContent = TIER_LABEL[tier];
-      const note = document.createElement('span');
-      note.textContent = TIER_NOTE[tier];
-      head.append(label, note);
-      const row = document.createElement('div');
-      row.className = 'card-row';
-      for (const card of Object.values(cards)) {
-        if (card.tier === tier) row.appendChild(cardButton(card, colorClass));
-      }
-      group.append(head, row);
-      grid.appendChild(group);
+    const group = document.createElement('div');
+    group.className = 'card-group';
+    const head = document.createElement('div');
+    head.className = 'card-group-head';
+    const label = document.createElement('span');
+    label.textContent = '手牌';
+    const note = document.createElement('span');
+    note.textContent = '每回合抽 2 基础 + 3 其它;回合结束弃掉重抽';
+    head.append(label, note);
+    const row = document.createElement('div');
+    row.className = 'card-row';
+    for (const key of view.hand || []) {
+      const card = cards[key];
+      if (card) row.appendChild(cardButton(card, colorClass));
     }
+    group.append(head, row);
+    grid.appendChild(group);
   }
 
   function buildActions() {
@@ -886,11 +878,7 @@
     const index = selectedCards.indexOf(key);
     if (index >= 0) {
       selectedCards.splice(index, 1);
-    } else if (card.tier === 'epic' || selectedCards.some((item) => cards[item].tier === 'epic')) {
-      selectedCards = [key];
     } else {
-      const sameTier = selectedCards.findIndex((item) => cards[item].tier === card.tier);
-      if (sameTier >= 0) selectedCards.splice(sameTier, 1);
       selectedCards.push(key);
     }
     if (selectionNeedsTarget()) {
@@ -986,7 +974,7 @@
   async function lockPick() {
     if (!isMyTurn()) return;
     if (cardMode()) {
-      if (!selectionValid() || cardCost(selectedCards) > view.en[view.you]) return;
+      if (cardCost(selectedCards) > view.en[view.you]) return;
       if (selectionNeedsTarget() && view.target == null) return;
       const actions = selectedCards.slice();
       const target = view.target;
@@ -1038,7 +1026,16 @@
     view.log = msg.log;
     view.winner = msg.winner;
     view.round = msg.round;
-    view.bonus = msg.bonus || view.bonus;
+    view.buff = msg.buff || view.buff;
+    view.pending = msg.pending || view.pending;
+    view.hand = msg.hand || [];
+    if (cardMode()) {
+      const handKey = JSON.stringify(view.hand);
+      if (handKey !== lastHandKey) {
+        lastHandKey = handKey;
+        buildActions();
+      }
+    }
 
     const cfgKey = JSON.stringify({
       cfg: msg.cfg,

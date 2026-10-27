@@ -3,7 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { actionDefs } = require('../engine.js');
-const { chooseBotPick } = require('../bot.js');
+const { chooseBotPick, chooseCardPick } = require('../bot.js');
+const { cardDefs } = require('../engine.js');
 
 const cfg = {
   hp: 1,
@@ -201,4 +202,42 @@ test('bots skip defend/escape when every enemy has 0 EN', () => {
   assert.equal(guarded.action, 'charge');
   const attacker = chooseBotPick(fullState(1, 0, [true, false]), fullDefs, fixed(0));
   assert.equal(attacker.action, 'attack');
+});
+
+const cardList = cardDefs();
+
+test('cards: bot only plays cards from its hand and within energy', () => {
+  const hand = ['charge', 'attack', 'strength', 'heal', 'focus'];
+  for (let i = 0; i < 200; i += 1) {
+    const pick = chooseCardPick({
+      seat: 1,
+      playerCount: 2,
+      teams: null,
+      hp: [10, 1],
+      en: [3, 3],
+      hand,
+      log: [],
+      round: 1,
+    }, cardList);
+    assert.ok(Array.isArray(pick.actions));
+    assert.equal(new Set(pick.actions).size, pick.actions.length);
+    assert.ok(pick.actions.every((key) => hand.includes(key)));
+    const cost = pick.actions.reduce((sum, key) => sum + cardList[key].cost, 0);
+    assert.ok(cost <= 3, `cost ${cost}`);
+    if (pick.target != null) assert.equal(pick.target, 0);
+  }
+});
+
+test('cards: bot passes when nothing is affordable', () => {
+  const pick = chooseCardPick({
+    seat: 1,
+    playerCount: 2,
+    teams: null,
+    hp: [10, 10],
+    en: [0, 0],
+    hand: ['slash', 'execute'],
+    log: [],
+    round: 1,
+  }, cardList);
+  assert.deepEqual(pick.actions, []);
 });
