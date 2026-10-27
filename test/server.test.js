@@ -563,7 +563,15 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'a', ['charge']);
   await pickCards(srv.port, 'b', []);
   const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
-  assert.equal(third.en[0], 110);
+  assert.equal(third.en[0], 80);
+  assert.equal(third.pending[0], 30);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 4);
+  await pickCards(srv.port, 'a', []);
+  await pickCards(srv.port, 'b', []);
+  const fourth = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 4);
+  assert.equal(fourth.en[0], 140);
+  assert.equal(fourth.pending[0], 0);
 });
 
 test('cards: cpu submits a legal, affordable subset of its hand', async (t) => {

@@ -45,13 +45,13 @@ test('cards: damage from both cards stacks on the same target', () => {
 test('cards: charge pays now and pays out next round', () => {
   const result = resolveRound(2, [pick('charge'), null], cards, state());
   assert.equal(result.energyDelta[0], -10);
-  assert.equal(result.energyNext[0], 30);
+  assert.deepEqual(result.energyNext[0], [{ amount: 30, delay: 2 }]);
 });
 
 test('cards: focus pays out 8 energy next round', () => {
   const result = resolveRound(2, [pick('focus'), null], cards, state());
   assert.equal(result.energyDelta[0], -50);
-  assert.equal(result.energyNext[0], 80);
+  assert.deepEqual(result.energyNext[0], [{ amount: 80, delay: 1 }]);
 });
 
 test('cards: strength adds +20 to every hit of the next attack card', () => {

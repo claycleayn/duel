@@ -345,7 +345,7 @@
       $('buff' + i).textContent = `攻击 +${buff}`;
       const pending = view.pending?.[i] ?? 0;
       $('pending' + i).hidden = pending <= 0;
-      $('pending' + i).textContent = `下回合 +${pending} EN`;
+      $('pending' + i).textContent = `下下回合 +${pending} EN`;
       $('shield' + i).hidden = !view.shield[i];
       const team = view.teams ? view.teams[i] : null;
       const teamMark = $('team' + i);
@@ -527,7 +527,7 @@
         <li>每回合抽 2 张基础 + 3 张其它牌;出牌张数不限,回合结束弃掉全部手牌重新抽。</li>
         <li>出牌只看能量,顺序按你点击的顺序;可以跳过不出。</li>
         <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
-        <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命。</li>
+        <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量(下回合或下下回合)。</li>
         <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
       `;
       return;
@@ -779,6 +779,23 @@
     return wrap;
   }
 
+  function cardTextEl(text) {
+    const p = document.createElement('p');
+    p.className = 'card-text';
+    const pattern = /(格挡|攻击|活力|恢复|能量|伤害)\s*(\d+(?:\*\d+)?)/g;
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      if (match.index > last) p.appendChild(document.createTextNode(text.slice(last, match.index)));
+      const span = document.createElement('span');
+      span.className = 'card-kw';
+      span.textContent = match[0];
+      p.appendChild(span);
+      last = match.index + match[0].length;
+    }
+    if (last < text.length) p.appendChild(document.createTextNode(text.slice(last)));
+    return p;
+  }
+
   function cardButton(card, colorClass) {
     const type = cardTypeOf(card);
     const btn = document.createElement('button');
@@ -802,9 +819,7 @@
     art.className = 'card-art';
     art.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${CARD_ICONS[card.key] ?? ''}</svg>`;
 
-    const text = document.createElement('p');
-    text.className = 'card-text';
-    text.textContent = card.desc;
+    const text = cardTextEl(card.desc);
 
     const foot = document.createElement('div');
     foot.className = 'card-foot';

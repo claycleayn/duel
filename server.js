@@ -559,10 +559,17 @@ function resolvePicks() {
       game.hp[i] = Math.min(CARD_RULES.hp, game.hp[i] + result.heal[i]);
     }
     if (cards) {
-      game.en[i] = survived
-        ? game.en[i] + CARD_RULES.roundEnergy + game.pending[i] + result.energyNext[i]
-        : Math.max(0, game.en[i]);
-      game.pending[i] = 0;
+      if (survived) {
+        const due = game.pending[i];
+        game.pending[i] = 0;
+        game.en[i] += due + CARD_RULES.roundEnergy;
+        for (const gain of result.energyNext[i]) {
+          if ((gain.delay ?? 1) >= 2) game.pending[i] += gain.amount;
+          else game.en[i] += gain.amount;
+        }
+      } else {
+        game.pending[i] = 0;
+      }
     }
   }
   game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));

@@ -86,8 +86,8 @@
     return {
       charge: {
         key: 'charge', name: '蓄力', tier: 'basic', cost: 10,
-        desc: '下回合获得 30 点能量。',
-        effects: [{ kind: 'energyNext', amount: 30 }],
+        desc: '下下回合 能量 30。',
+        effects: [{ kind: 'energyNext', amount: 30, delay: 2 }],
       },
       attack: {
         key: 'attack', name: '攻击', tier: 'basic', cost: 10,
@@ -147,7 +147,7 @@
       },
       focus: {
         key: 'focus', name: '聚能', tier: 'epic', cost: 50,
-        desc: '下回合获得 80 点能量。',
+        desc: '下回合 能量 80。',
         effects: [{ kind: 'energyNext', amount: 80 }],
       },
     };
@@ -209,7 +209,7 @@
     const piercing = Array.from({ length: playerCount }, () => Array(playerCount).fill(0));
 
     const heal = Array(playerCount).fill(0);
-    const energyNext = Array(playerCount).fill(0);
+    const energyNext = Array.from({ length: playerCount }, () => []);
     const buffAdded = Array(playerCount).fill(0);
     const buffUsed = Array(playerCount).fill(0);
 
@@ -237,7 +237,7 @@
           if (effect.kind === 'energy') {
             energyDelta[from] += effect.amount;
           } else if (effect.kind === 'energyNext') {
-            energyNext[from] += effect.amount;
+            energyNext[from].push({ amount: effect.amount, delay: effect.delay ?? 1 });
           } else if (effect.kind === 'defense') {
             defense[from] += effect.amount;
           } else if (effect.kind === 'heal') {
