@@ -647,14 +647,24 @@
     side.classList.remove('hurt');
     void side.offsetWidth;
     side.classList.add('hurt');
+    const impact = document.createElement('span');
+    impact.className = 'impact';
     const float = document.createElement('span');
     float.className = 'float-dmg';
     float.textContent = `−${amount}`;
-    side.appendChild(float);
+    side.append(impact, float);
+    if (amount >= 20) {
+      const arena = document.querySelector('.arena');
+      arena.classList.remove('shake');
+      void arena.offsetWidth;
+      arena.classList.add('shake');
+      setTimeout(() => arena.classList.remove('shake'), 420);
+    }
     setTimeout(() => {
       side.classList.remove('hurt');
+      impact.remove();
       float.remove();
-    }, 950);
+    }, 980);
   }
 
   function flashGuard(index) {
