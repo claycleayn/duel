@@ -454,6 +454,7 @@ function stateFor(conn) {
     buff: game.buff.slice(0, count),
     pending: game.pending.slice(0, count),
     roundEnergy: game.ruleset === 'cards' ? CARD_RULES.roundEnergy : 0,
+    overdrawDamage: OVERDRAW_DAMAGE,
     hand: typeof seat === 'number' ? (game.hands[seat] || []).slice() : [],
     round: game.round,
     phase: game.phase,

@@ -61,6 +61,7 @@
     pending: [0, 0],
     hand: [],
     roundEnergy: 0,
+    overdrawDamage: 10,
     round: 1,
     phase: 'pick',
     winner: null,
@@ -667,6 +668,21 @@
     }, 980);
   }
 
+  function flashOverdraw(index, amount) {
+    const side = $('side' + index);
+    side.classList.remove('overdraw');
+    void side.offsetWidth;
+    side.classList.add('overdraw');
+    const tag = document.createElement('span');
+    tag.className = 'overdraw-tag';
+    tag.textContent = `能量透支 −${amount}`;
+    side.appendChild(tag);
+    setTimeout(() => {
+      side.classList.remove('overdraw');
+      tag.remove();
+    }, 1100);
+  }
+
   function flashGuard(index) {
     const side = $('side' + index);
     side.classList.add('guard');
@@ -697,6 +713,7 @@
       if (result.shieldUsed[i]) { flashGuard(i); shielded = true; }
       if (result.escaped[i]) { flashGuard(i); escaped = true; }
       if (result.hpLoss[i]) { flashSide(i, result.hpLoss[i]); damaged = true; }
+      if (result.overdraw?.[i]) { flashOverdraw(i, msg.overdrawDamage || view.overdrawDamage || 10); }
     }
     if (guarded) beep(420, 0.07, 'triangle', 0.025);
     if (shielded) beep(500, 0.09, 'triangle', 0.03);
@@ -860,10 +877,12 @@
     head.append(label, note);
     const row = document.createElement('div');
     row.className = 'card-row';
-    for (const key of view.hand || []) {
-      const card = cards[key];
-      if (card) row.appendChild(cardButton(card, colorClass));
-    }
+    const hand = (view.hand || []).filter((key) => cards[key]);
+    hand.forEach((key, index) => {
+      const button = cardButton(cards[key], colorClass);
+      button.style.setProperty('--i', String(index));
+      row.appendChild(button);
+    });
     group.append(head, row);
     grid.appendChild(group);
   }
@@ -1072,11 +1091,16 @@
     view.pending = msg.pending || view.pending;
     view.hand = msg.hand || [];
     view.roundEnergy = msg.roundEnergy || 0;
+    view.overdrawDamage = msg.overdrawDamage || 10;
     if (cardMode()) {
       const handKey = JSON.stringify(view.hand);
       if (handKey !== lastHandKey) {
         lastHandKey = handKey;
         buildActions();
+        if (view.hand.length) {
+          beep(680, 0.04, 'triangle', 0.018);
+          beep(840, 0.05, 'triangle', 0.014, 0.06);
+        }
       }
     }
 
