@@ -1097,3 +1097,26 @@
     .side.overdraw,
     .float-dmg { animation: none !important; }
   }
+
+  .tip-bubble {
+    position: fixed;
+    z-index: 60;
+    max-width: 220px;
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    font-family: var(--font-body);
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+  }
+  .card-kw[data-tip] {
+    text-decoration: underline dotted;
+    text-decoration-color: color-mix(in srgb, var(--kw) 55%, transparent);
+    text-underline-offset: 2px;
+    cursor: help;
+  }
+  .card-tag[data-tip] { cursor: help; }

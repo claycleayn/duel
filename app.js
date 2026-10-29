@@ -43,6 +43,18 @@
 
   const TIER_LABEL = { basic: '基础', rare: '稀有', epic: '史诗' };
 
+  const KEYWORD_TIPS = {
+    格挡: '本回合获得 X 点格挡,先于生命扣减。',
+    攻击: '造成 X 点伤害;X*N 表示连续 N 次。',
+    活力: '下一张攻击牌每段伤害 +X。',
+    恢复: '回复 X 点生命。',
+    能量: '获得 X 点能量。',
+    伤害: '造成 X 点伤害;处决会按已损生命追加。',
+    排斥: '不能与其他牌同时打出。',
+    破绽: '被穿透攻击无视该效果,但牌仍然照付能量。',
+    精准: '攻击无视破绽效果,并让对方照付能量。',
+  };
+
   const view = {
     online: false,
     you: null,
@@ -810,6 +822,8 @@
       const span = document.createElement('span');
       span.className = 'card-kw';
       span.textContent = match[0];
+      const tip = KEYWORD_TIPS[match[1]];
+      if (tip) span.dataset.tip = tip.replace('X', match[2]);
       p.appendChild(span);
       last = match.index + match[0].length;
     }
@@ -855,6 +869,7 @@
       const tag = document.createElement('span');
       tag.className = 'card-tag';
       tag.textContent = label;
+      if (KEYWORD_TIPS[label]) tag.dataset.tip = KEYWORD_TIPS[label];
       foot.appendChild(tag);
     }
     foot.appendChild(kind);
@@ -1163,6 +1178,50 @@
     renderAll();
   }
 
+  let tipTimer = null;
+
+  function hideTip() {
+    clearTimeout(tipTimer);
+    const bubble = $('tipBubble');
+    if (bubble) bubble.hidden = true;
+  }
+
+  function showTip(target) {
+    const bubble = $('tipBubble');
+    const text = target && target.dataset ? target.dataset.tip : '';
+    if (!bubble || !text) return;
+    bubble.textContent = text;
+    bubble.hidden = false;
+    const rect = target.getBoundingClientRect();
+    const box = bubble.getBoundingClientRect();
+    let left = rect.left + rect.width / 2 - box.width / 2;
+    left = Math.max(8, Math.min(window.innerWidth - box.width - 8, left));
+    let top = rect.top - box.height - 8;
+    if (top < 8) top = rect.bottom + 8;
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+  }
+
+  function bindTipEvents() {
+    document.addEventListener('mouseover', (event) => {
+      const target = event.target.closest ? event.target.closest('[data-tip]') : null;
+      clearTimeout(tipTimer);
+      if (!target) {
+        hideTip();
+        return;
+      }
+      tipTimer = setTimeout(() => showTip(target), 120);
+    });
+    document.addEventListener('mouseout', (event) => {
+      const target = event.target.closest ? event.target.closest('[data-tip]') : null;
+      if (!target) return;
+      if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+      hideTip();
+    });
+    document.addEventListener('scroll', hideTip, true);
+    document.addEventListener('click', hideTip);
+  }
+
   function bindEvents() {
     $('actionGrid').addEventListener('click', (event) => {
       const cardBtn = event.target.closest('button.card');
@@ -1253,6 +1312,7 @@
   renderRules();
   syncConfigInputs();
   bindEvents();
+  bindTipEvents();
   renderAll();
 
   if (!FILE_MODE) {
