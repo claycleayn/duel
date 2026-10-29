@@ -514,6 +514,9 @@ function makeLogEntry(round, picks, result, defs) {
     if (result.blocked[i]) bits.push(`${label(i)} 防御 −<b>${result.blocked[i]}</b>`);
   }
   for (let i = 0; i < count; i += 1) {
+    if (result.breachLocked[i]) bits.push(`${label(i)} 破绽:本回合无格挡`);
+  }
+  for (let i = 0; i < count; i += 1) {
     if (result.shieldBlocked[i]) bits.push(`${label(i)} 护盾抵挡 <b>${result.shieldBlocked[i]}</b>`);
   }
   for (const move of result.transferred || []) {

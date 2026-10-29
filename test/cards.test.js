@@ -189,3 +189,18 @@ test('cards: energy gained earlier pays later cards in order', () => {
   assert.equal(result.incoming[1], 20);
   assert.equal(result.energyDelta[0], -30);
 });
+
+test('cards: a breach card locks out block for the round', () => {
+  const result = resolveRound(2, [pick('light', 'defend'), aimed(0, 'water')], cards, state());
+  assert.equal(result.breachLocked[0], true);
+  assert.equal(result.defense[0], 0);
+  assert.equal(result.blocked[0], 0);
+  assert.equal(result.hpLoss[0], 10);
+});
+
+test('cards: block still works without a breach card', () => {
+  const result = resolveRound(2, [pick('defend'), aimed(0, 'attack')], cards, state());
+  assert.equal(result.breachLocked[0], false);
+  assert.equal(result.blocked[0], 10);
+  assert.equal(result.hpLoss[0], 0);
+});

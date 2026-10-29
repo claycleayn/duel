@@ -51,7 +51,7 @@
     能量: '获得 X 点能量。',
     伤害: '造成 X 点伤害;处决会按已损生命追加。',
     排斥: '不能与其他牌同时打出。',
-    破绽: '被穿透攻击无视该效果,但牌仍然照付能量。',
+    破绽: '被穿透攻击无视该效果,但牌仍然照付能量;打出后本回合无法获得格挡。',
     精准: '攻击无视破绽效果,并让对方照付能量。',
   };
 
@@ -171,6 +171,11 @@
 
   function isAttackCard(card) {
     return (card.effects ?? []).some((effect) => effect.kind === 'damage');
+  }
+
+  function selectionHasBreach() {
+    const cards = handCards();
+    return selectedCards.some((key) => (cards[key]?.effects ?? []).some((effect) => effect.breach));
   }
 
   function selectionNeedsTarget() {
@@ -426,7 +431,8 @@
     } else if (selectedCards.length) {
       const label = selectedCards.map((key) => cards[key].name).join(' + ');
       const aim = targetNeeded ? ' · 点击上方玩家卡片选择目标' : '';
-      desc = `${label}${aim}`;
+      const breach = selectionHasBreach() ? ' · 破绽:本回合无法获得格挡' : '';
+      desc = `${label}${aim}${breach}`;
     } else {
       desc = '选择要打出的牌(张数不限),也可以直接跳过。';
     }
@@ -540,7 +546,7 @@
         <li>聚能的能量当场到账,可以给后面的牌用;也可以跳过不出。</li>
         <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
         <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量;排斥 = 不能与其他牌同时打出。</li>
-        <li>破绽 = 被穿透攻击无视该效果,但牌仍然照付能量;精准 = 攻击无视破绽效果,并让对方照付能量。</li>
+        <li>破绽 = 被穿透攻击无视该效果但照付能量,且打出后本回合无法获得格挡;精准 = 攻击无视破绽效果,并让对方照付能量。</li>
         <li>卡牌模式不互相抵消:双方伤害同时生效,各自减自己的格挡。</li>
         <li>每回合最多打出 1 张攻击牌(攻击/连斩/水枪/处决);力量(活力)每回合开始 −10,最低 0。</li>
       `;

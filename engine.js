@@ -219,6 +219,7 @@
     const buffUsed = Array(playerCount).fill(0);
     const overdraw = Array(playerCount).fill(false);
     const preciseHit = Array(playerCount).fill(false);
+    const breachLocked = Array(playerCount).fill(false);
     const sequential = Array.isArray(state.energy);
 
     for (let from = 0; from < playerCount; from += 1) {
@@ -230,6 +231,7 @@
       let budget = startEnergy;
       let carried = state.attackBuff?.[from] ?? 0;
       let added = 0;
+      let breach = false;
 
       for (const def of list) {
         const cost = def.cost ?? 0;
@@ -275,6 +277,7 @@
           } else if (effect.kind === 'buff') {
             added += effect.amount;
           } else if (effect.kind === 'transfer') {
+            if (effect.breach) breach = true;
             transfers[from] = {
               mode: effect.mode,
               target: effect.mode === 'target' ? resolveChosen(pick, from, playerCount) : null,
@@ -283,9 +286,15 @@
               breach: !!effect.breach,
             };
           } else if (effect.kind === 'immunity') {
+            if (effect.breach) breach = true;
             immunity[from] = true;
           }
         }
+      }
+      // 破绽:打出带破绽的牌后,本回合不能获得格挡。
+      if (breach) {
+        defense[from] = 0;
+        breachLocked[from] = true;
       }
       buffAdded[from] = added;
       if (sequential && !overdraw[from]) energyDelta[from] += budget - startEnergy;
@@ -391,6 +400,7 @@
       buffAdded,
       buffUsed,
       overdraw,
+      breachLocked,
       defense,
       normal,
       piercing,
