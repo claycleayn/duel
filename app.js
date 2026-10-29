@@ -38,7 +38,7 @@
     dark: ICONS.dark,
     light: ICONS.light,
     escape: ICONS.escape,
-    execute: '<path d="M4 16 15 5M9 20 20 9M12 2v3"/>',
+    execute: '<path d="M3 4h18M6 4v17M18 4v17M4 21h16"/><path d="M9 4v3l6 3V4Z"/><path d="M12 1.5V4"/>',
   };
 
   const TIER_LABEL = { basic: '基础', rare: '稀有', epic: '史诗' };
