@@ -96,8 +96,8 @@
       },
       defend: {
         key: 'defend', name: '防御', tier: 'basic', cost: 10,
-        desc: '格挡 15。',
-        effects: [{ kind: 'defense', amount: 15 }],
+        desc: '格挡 10。',
+        effects: [{ kind: 'defense', amount: 10 }],
       },
       slash: {
         key: 'slash', name: '连斩', tier: 'rare', cost: 40,
@@ -347,8 +347,9 @@
       const transfer = transfers[i];
       if (!transfer) continue;
       // 精准攻击会让破绽牌照付全额,即使它的效果被无视。
-      const fired = transferred.some((move) => move.from === i)
-        || (transfer.breach && preciseHit[i]);
+      const precise = !!(transfer.breach && preciseHit[i]);
+      const fired = transferred.some((move) => move.from === i) || precise;
+      transfer.precise = precise;
       if (!fired) energyDelta[i] += transfer.cost - transfer.refund;
     }
 
@@ -395,6 +396,7 @@
       piercing,
       canceledPairs,
       transferred,
+      transfers,
       escaped: immunity,
       incoming,
       blocked,

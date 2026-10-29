@@ -46,7 +46,7 @@
   const KEYWORD_TIPS = {
     格挡: '本回合获得 X 点格挡,先于生命扣减。',
     攻击: '造成 X 点伤害;X*N 表示连续 N 次。',
-    活力: '下一张攻击牌每段伤害 +X。',
+    活力: '下一张攻击牌每段伤害 +X;每回合开始时 −10,最低 0。',
     恢复: '回复 X 点生命。',
     能量: '获得 X 点能量。',
     伤害: '造成 X 点伤害;处决会按已损生命追加。',
@@ -167,6 +167,10 @@
 
   function handCards() {
     return cardDefs();
+  }
+
+  function isAttackCard(card) {
+    return (card.effects ?? []).some((effect) => effect.kind === 'damage');
   }
 
   function selectionNeedsTarget() {
@@ -536,6 +540,7 @@
         <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量;排斥 = 不能与其他牌同时打出。</li>
         <li>破绽 = 被穿透攻击无视该效果,但牌仍然照付能量;精准 = 攻击无视破绽效果,并让对方照付能量。</li>
         <li>卡牌模式不互相抵消:双方伤害同时生效,各自减自己的格挡。</li>
+        <li>每回合最多打出 1 张攻击牌(攻击/连斩/水枪/处决);力量(活力)每回合开始 −10,最低 0。</li>
       `;
       return;
     }
@@ -889,7 +894,7 @@
     const label = document.createElement('span');
     label.textContent = '手牌';
     const note = document.createElement('span');
-    note.textContent = '每回合抽 2 基础 + 3 其它;回合结束弃掉重抽';
+    note.textContent = '每回合抽 2 基础 + 3 其它;攻击牌每回合限 1 张;回合结束弃掉重抽';
     head.append(label, note);
     const row = document.createElement('div');
     row.className = 'card-row';
@@ -956,6 +961,9 @@
       selectedCards = [key];
     } else if (selectedCards.some((item) => cards[item].exclusive)) {
       selectedCards = [key];
+    } else if (isAttackCard(card)) {
+      selectedCards = selectedCards.filter((item) => !isAttackCard(cards[item]));
+      selectedCards.push(key);
     } else {
       selectedCards.push(key);
     }

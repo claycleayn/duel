@@ -21,7 +21,7 @@ test('card catalog: tiers, costs and effects', () => {
   for (const key of ['charge', 'attack', 'defend']) assert.equal(cards[key].tier, 'basic');
   assert.equal(cards.charge.cost, 20);
   assert.equal(cards.charge.effects[0].amount, 30);
-  assert.equal(cards.defend.effects[0].amount, 15);
+  assert.equal(cards.defend.effects[0].amount, 10);
   assert.equal(cards.slash.cost, 40);
   assert.equal(cards.slash.effects.filter((effect) => effect.kind === 'damage').length, 2);
   assert.equal(cards.water.cost, 20);
@@ -96,7 +96,7 @@ test('cards: heal returns health and adds 1 block', () => {
   assert.equal(result.heal[0], 10);
 });
 
-test('cards: 15 block leaves 5 of the 20 damage through', () => {
+test('cards: 10 block leaves 10 of the 20 damage through', () => {
   const result = resolveRound(
     2,
     [pick('defend'), aimed(0, 'slash')],
@@ -104,8 +104,8 @@ test('cards: 15 block leaves 5 of the 20 damage through', () => {
     state(),
   );
   assert.equal(result.incoming[0], 20);
-  assert.equal(result.blocked[0], 15);
-  assert.equal(result.hpLoss[0], 5);
+  assert.equal(result.blocked[0], 10);
+  assert.equal(result.hpLoss[0], 10);
 });
 
 test('cards: mutual attacks both land when cancellation is off', () => {
@@ -167,6 +167,7 @@ test('cards: a precise attack makes a breach card pay in full', () => {
   assert.equal(result.hpLoss[0], 10);
   assert.equal(result.energyDelta[0], -40);
   assert.equal(result.transferred.length, 0);
+  assert.equal(result.transfers[0].precise, true);
 });
 
 test('cards: overdraw stops the rest of the sequence', () => {

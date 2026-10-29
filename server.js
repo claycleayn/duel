@@ -36,6 +36,7 @@ const DEFAULTS = {
 // 卡牌模式的固定经济:血量 100、开局 30 EN、每回合 +20 EN(能量不清空);数值统一 ×10 便于微调。
 const CARD_RULES = { hp: 100, startEnergy: 30, roundEnergy: 20 };
 const OVERDRAW_DAMAGE = 10;
+const BUFF_DECAY = 10;
 const BASIC_CARDS = ['charge', 'attack', 'defend'];
 
 function cleanToken(raw) {
@@ -260,6 +261,10 @@ function sequenceAffordable(actions, cards, start) {
   return true;
 }
 
+function attackCardCount(actions, cards) {
+  return actions.filter((key) => (cards[key]?.effects ?? []).some((effect) => effect.kind === 'damage')).length;
+}
+
 function validHandPlay(actions, hand, cards) {
   if (!Array.isArray(actions) || new Set(actions).size !== actions.length) return false;
   return actions.every((key) => typeof key === 'string' && hand.includes(key) && cards[key]);
@@ -287,7 +292,8 @@ function botPickAll() {
       const hand = game.hands[seat] || [];
       const actions = choice && Array.isArray(choice.actions) ? choice.actions : [];
       if (!validHandPlay(actions, hand, cards)
-        || !sequenceAffordable(actions, cards, game.en[seat])) {
+        || !sequenceAffordable(actions, cards, game.en[seat])
+        || attackCardCount(actions, cards) > 1) {
         game.picks[seat] = { actions: [], target: null };
         continue;
       }
@@ -520,8 +526,14 @@ function makeLogEntry(round, picks, result, defs) {
     const pick = picks[i];
     if (!pick) continue;
     for (const key of keysOf(pick)) {
-      if ((key === 'light' || key === 'dark') && !result.transferred.some((move) => move.from === i)) {
-        bits.push(`${label(i)} ${defs[key].name}未触发(只耗 1 EN)`);
+      if (key !== 'light' && key !== 'dark') continue;
+      if (result.transferred.some((move) => move.from === i)) continue;
+      const transfer = result.transfers ? result.transfers[i] : null;
+      if (transfer && transfer.precise) {
+        bits.push(`${label(i)} ${defs[key].name}被精准压制,照付 ${transfer.cost} EN`);
+      } else {
+        const effect = (defs[key].effects ?? []).find((item) => item.kind === 'transfer');
+        bits.push(`${label(i)} ${defs[key].name}未触发(只耗 ${(effect && effect.refund) || 1} EN)`);
       }
     }
   }
@@ -639,6 +651,9 @@ function resolvePicks() {
       game.winner = 'draw';
     } else {
       game.round += 1;
+      for (let i = 0; i < count; i += 1) {
+        if (game.hp[i] > 0) game.buff[i] = Math.max(0, game.buff[i] - BUFF_DECAY);
+      }
       game.picks = [null, null, null, null];
       game.phase = 'pick';
       game.reveal = null;
@@ -782,6 +797,10 @@ function handlePick(req, res) {
       }
       if (actions.length > 1 && actions.some((key) => cards[key].exclusive)) {
         respond(res, 400, { ok: false, error: 'exclusive card' });
+        return;
+      }
+      if (attackCardCount(actions, cards) > 1) {
+        respond(res, 400, { ok: false, error: 'one attack card' });
         return;
       }
       const teams = game.teamMode === '2v2' && count === 4 ? TEAMS_2V2 : null;

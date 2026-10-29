@@ -555,7 +555,7 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'a', ['attack'], 1);
   await pickCards(srv.port, 'b', []);
   const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
-  assert.equal(second.hp[1], 70);
+  assert.equal(second.hp[1], 80);
   assert.deepEqual(second.buff, [0, 0]);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
@@ -674,4 +674,56 @@ test('cards: attacks trade instead of canceling', async (t) => {
   const reveal = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
   assert.equal(reveal.reveal.result.canceledPairs.length, 0);
   assert.deepEqual(reveal.hp, [90, 90]);
+});
+
+test('cards: only one attack card per round', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.72' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+  await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+
+  const denied = await pickCards(srv.port, 'a', ['attack', 'water'], 1);
+  assert.equal(denied.status, 400);
+  assert.equal(denied.json.error, 'one attack card');
+  assert.equal((await pickCards(srv.port, 'a', ['attack', 'focus'], 1)).status, 200);
+});
+
+test('cards: strength decays by 10 at each round start', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.75' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+  await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+
+  await pickCards(srv.port, 'a', ['strength']);
+  await pickCards(srv.port, 'b', []);
+  const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(first.buff, [20, 0]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  await pickCards(srv.port, 'a', []);
+  await pickCards(srv.port, 'b', []);
+  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.deepEqual(second.buff, [10, 0]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
+  await pickCards(srv.port, 'a', []);
+  await pickCards(srv.port, 'b', []);
+  const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
+  assert.deepEqual(third.buff, [0, 0]);
 });

@@ -224,6 +224,8 @@ test('cards: bot only plays cards from its hand and within energy', () => {
     assert.ok(pick.actions.every((key) => hand.includes(key)));
     const cost = pick.actions.reduce((sum, key) => sum + cardList[key].cost, 0);
     assert.ok(cost <= 30, `cost ${cost}`);
+    const attacks = pick.actions.filter((key) => cardList[key].effects.some((effect) => effect.kind === 'damage'));
+    assert.ok(attacks.length <= 1, `attacks ${attacks.join(',')}`);
     if (pick.target != null) assert.equal(pick.target, 0);
   }
 });

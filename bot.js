@@ -203,7 +203,10 @@ function chooseCardPick(state, cards, random = Math.random) {
   let dealt = 0;
   for (const key of damageKeys) {
     if (dealt >= enemyHp) break;
-    if (take(key)) dealt += damageOf(key);
+    if (take(key)) {
+      dealt += damageOf(key);
+      break;
+    }
   }
 
   if (budget > 0 && (state.en[primary] ?? 0) >= 1 && random() < 0.5) take('defend');
