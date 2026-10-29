@@ -13,6 +13,18 @@
     <symbol id="eg-b" viewBox="0 0 24 24"><path d="M12 2.2 20.6 7.1v9.8L12 21.8 3.4 16.9V7.1Z"/></symbol>
     <symbol id="eg-c" viewBox="0 0 24 24"><path d="M12 3 21.5 20.5H2.5Z"/></symbol>
     <symbol id="eg-d" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/></symbol>
+    <symbol id="ic-power" viewBox="0 0 24 24">
+      <path d="M6 8.5v7M3.5 10v4M18 8.5v7M20.5 10v4M6 12h12"/>
+    </symbol>
+    <symbol id="ic-battery" viewBox="0 0 24 24">
+      <rect x="2.5" y="7.5" width="16" height="9" rx="2"/>
+      <path d="M21 10.5v3"/>
+      <path d="M6 10.5v3M9.5 10.5v3"/>
+    </symbol>
+    <symbol id="ic-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"/>
+      <path d="M12 7.5V12l3 2"/>
+    </symbol>
   </svg>
   <div class="app" id="app" data-turn="0">
     <header class="top">
@@ -71,8 +83,12 @@
           <span class="side-badges">
             <span class="team-mark" id="team0" hidden>队伍 A</span>
             <span class="shield-mark" id="shield0" hidden>护盾</span>
-            <span class="power-mark" id="buff0" hidden>攻击 +0</span>
-            <span class="power-mark" id="pending0" hidden>下回合 +0 EN</span>
+            <span class="power-mark buff-mark" id="buff0" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-power"/></svg><b class="badge-num" id="buffNum0">0</b>
+            </span>
+            <span class="power-mark pending-mark" id="pending0" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-battery"/></svg><svg class="badge-icon clock-icon" aria-hidden="true"><use href="#ic-clock"/></svg><b class="badge-num" id="pendNum0">0</b>
+            </span>
             <span class="target-mark" id="target0" hidden>目标</span>
             <span class="side-tag" id="tag0"></span>
           </span>
@@ -96,8 +112,12 @@
           <span class="side-badges">
             <span class="team-mark" id="team1" hidden>队伍 A</span>
             <span class="shield-mark" id="shield1" hidden>护盾</span>
-            <span class="power-mark" id="buff1" hidden>攻击 +0</span>
-            <span class="power-mark" id="pending1" hidden>下回合 +0 EN</span>
+            <span class="power-mark buff-mark" id="buff1" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-power"/></svg><b class="badge-num" id="buffNum1">0</b>
+            </span>
+            <span class="power-mark pending-mark" id="pending1" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-battery"/></svg><svg class="badge-icon clock-icon" aria-hidden="true"><use href="#ic-clock"/></svg><b class="badge-num" id="pendNum1">0</b>
+            </span>
             <span class="target-mark" id="target1" hidden>目标</span>
             <span class="side-tag" id="tag1"></span>
           </span>
@@ -121,8 +141,12 @@
           <span class="side-badges">
             <span class="team-mark" id="team2" hidden>队伍 A</span>
             <span class="shield-mark" id="shield2" hidden>护盾</span>
-            <span class="power-mark" id="buff2" hidden>攻击 +0</span>
-            <span class="power-mark" id="pending2" hidden>下回合 +0 EN</span>
+            <span class="power-mark buff-mark" id="buff2" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-power"/></svg><b class="badge-num" id="buffNum2">0</b>
+            </span>
+            <span class="power-mark pending-mark" id="pending2" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-battery"/></svg><svg class="badge-icon clock-icon" aria-hidden="true"><use href="#ic-clock"/></svg><b class="badge-num" id="pendNum2">0</b>
+            </span>
             <span class="target-mark" id="target2" hidden>目标</span>
             <span class="side-tag" id="tag2"></span>
           </span>
@@ -146,8 +170,12 @@
           <span class="side-badges">
             <span class="team-mark" id="team3" hidden>队伍 A</span>
             <span class="shield-mark" id="shield3" hidden>护盾</span>
-            <span class="power-mark" id="buff3" hidden>攻击 +0</span>
-            <span class="power-mark" id="pending3" hidden>下回合 +0 EN</span>
+            <span class="power-mark buff-mark" id="buff3" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-power"/></svg><b class="badge-num" id="buffNum3">0</b>
+            </span>
+            <span class="power-mark pending-mark" id="pending3" hidden>
+              <svg class="badge-icon" aria-hidden="true"><use href="#ic-battery"/></svg><svg class="badge-icon clock-icon" aria-hidden="true"><use href="#ic-clock"/></svg><b class="badge-num" id="pendNum3">0</b>
+            </span>
             <span class="target-mark" id="target3" hidden>目标</span>
             <span class="side-tag" id="tag3"></span>
           </span>

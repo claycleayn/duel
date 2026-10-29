@@ -354,10 +354,12 @@
       gain.textContent = view.roundEnergy ? `+${view.roundEnergy}` : '';
       const buff = view.buff?.[i] ?? 0;
       $('buff' + i).hidden = buff <= 0;
-      $('buff' + i).textContent = `攻击 +${buff}`;
+      $('buffNum' + i).textContent = buff;
+      $('buff' + i).title = `活力:下一张攻击牌每段 +${buff}`;
       const pending = view.pending?.[i] ?? 0;
       $('pending' + i).hidden = pending <= 0;
-      $('pending' + i).textContent = `下下回合 +${pending} EN`;
+      $('pendNum' + i).textContent = pending;
+      $('pending' + i).title = `下下回合能量 +${pending}`;
       $('shield' + i).hidden = !view.shield[i];
       const team = view.teams ? view.teams[i] : null;
       const teamMark = $('team' + i);

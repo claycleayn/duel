@@ -1120,3 +1120,25 @@
     cursor: help;
   }
   .card-tag[data-tip] { cursor: help; }
+
+  .power-mark { display: inline-flex; align-items: center; gap: 3px; }
+  .badge-icon {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .badge-icon.clock-icon { width: 9px; height: 9px; }
+  .badge-num {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .buff-mark { color: var(--kw); }
+  .pending-mark { color: var(--energy); }
