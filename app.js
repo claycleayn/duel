@@ -70,7 +70,7 @@
     en: [0, 0],
     shield: [false, false],
     buff: [0, 0],
-    pending: [0, 0],
+    schedule: [[], [], [], []],
     hand: [],
     roundEnergy: 0,
     overdrawDamage: 10,
@@ -356,10 +356,10 @@
       $('buff' + i).hidden = buff <= 0;
       $('buffNum' + i).textContent = buff;
       $('buff' + i).title = `活力:下一张攻击牌每段 +${buff}`;
-      const pending = view.pending?.[i] ?? 0;
-      $('pending' + i).hidden = pending <= 0;
-      $('pendNum' + i).textContent = pending;
-      $('pending' + i).title = `下下回合能量 +${pending}`;
+      const sched = $('sched' + i);
+      const entries = view.schedule?.[i] ?? [];
+      sched.hidden = entries.length === 0;
+      if (entries.length) sched.replaceChildren(...entries.map(schedBadge));
       $('shield' + i).hidden = !view.shield[i];
       const team = view.teams ? view.teams[i] : null;
       const teamMark = $('team' + i);
@@ -819,6 +819,17 @@
     return wrap;
   }
 
+  function schedBadge(entry) {
+    const pill = document.createElement('span');
+    pill.className = 'sched-item';
+    pill.title = `能量 +${entry.amount},${entry.rounds} 回合后到账`;
+    pill.innerHTML = `
+      <span class="sched-icon"><svg class="badge-icon" aria-hidden="true"><use href="#ic-battery"/></svg><b class="sched-num">${entry.amount}</b></span>
+      <span class="sched-icon"><svg class="badge-icon clock-icon" aria-hidden="true"><use href="#ic-clock"/></svg><b class="sched-num">${entry.rounds}</b></span>
+    `;
+    return pill;
+  }
+
   function cardTextEl(text) {
     const p = document.createElement('p');
     p.className = 'card-text';
@@ -1114,7 +1125,7 @@
     view.winner = msg.winner;
     view.round = msg.round;
     view.buff = msg.buff || view.buff;
-    view.pending = msg.pending || view.pending;
+    view.schedule = msg.schedule || view.schedule;
     view.hand = msg.hand || [];
     view.roundEnergy = msg.roundEnergy || 0;
     view.overdrawDamage = msg.overdrawDamage || 10;

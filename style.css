@@ -1141,4 +1141,28 @@
     font-variant-numeric: tabular-nums;
   }
   .buff-mark { color: var(--kw); }
-  .pending-mark { color: var(--energy); }
+  .sched { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .sched-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px 10px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: var(--energy);
+  }
+  .sched-icon { position: relative; display: inline-flex; }
+  .sched-icon .badge-icon { width: 16px; height: 16px; }
+  .sched-icon .clock-icon { width: 13px; height: 13px; }
+  .sched-num {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    padding: 0 1px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    line-height: 1;
+    color: currentColor;
+  }

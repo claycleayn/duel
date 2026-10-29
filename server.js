@@ -91,7 +91,7 @@ function createRoom(accessToken) {
   en: [0, 0, 0, 0],
   shield: [true, true, false, false],
   buff: [0, 0, 0, 0],
-  pending: [0, 0, 0, 0],
+  schedule: [[], [], [], []],
   hands: [[], [], [], []],
   round: 1,
   phase: 'pick', // pick | reveal | over
@@ -115,7 +115,7 @@ function resetGame() {
   game.en = [0, 0, 0, 0];
   game.shield = [false, false, false, false];
   game.buff = [0, 0, 0, 0];
-  game.pending = [0, 0, 0, 0];
+  game.schedule = [[], [], [], []];
   game.hands = [[], [], [], []];
   for (let i = 0; i < count; i += 1) {
     game.hp[i] = cards ? CARD_RULES.hp : game.cfg.hp;
@@ -458,7 +458,7 @@ function stateFor(conn) {
     en: game.en.slice(0, count),
     shield: game.shield.slice(0, count),
     buff: game.buff.slice(0, count),
-    pending: game.pending.slice(0, count),
+    schedule: game.schedule.slice(0, count).map((list) => list.map((entry) => ({ amount: entry.amount, rounds: entry.rounds }))),
     roundEnergy: game.ruleset === 'cards' ? CARD_RULES.roundEnergy : 0,
     overdrawDamage: OVERDRAW_DAMAGE,
     hand: typeof seat === 'number' ? (game.hands[seat] || []).slice() : [],
@@ -600,15 +600,14 @@ function resolvePicks() {
     }
     game.en[i] = result.overdraw[i] ? 0 : game.en[i] + result.energyDelta[i];
     if (survived) {
-      const due = game.pending[i];
-      game.pending[i] = 0;
-      game.en[i] += due + CARD_RULES.roundEnergy;
+      game.en[i] += CARD_RULES.roundEnergy;
       for (const gain of result.energyNext[i]) {
-        if ((gain.delay ?? 1) >= 2) game.pending[i] += gain.amount;
+        const delay = gain.delay ?? 1;
+        if (delay >= 2) game.schedule[i].push({ amount: gain.amount, rounds: delay });
         else game.en[i] += gain.amount;
       }
     } else {
-      game.pending[i] = 0;
+      game.schedule[i] = [];
     }
   }
   game.shield = result.shieldAfter.concat(Array(MAX_PLAYERS - count).fill(false));
@@ -652,7 +651,18 @@ function resolvePicks() {
     } else {
       game.round += 1;
       for (let i = 0; i < count; i += 1) {
-        if (game.hp[i] > 0) game.buff[i] = Math.max(0, game.buff[i] - BUFF_DECAY);
+        if (game.hp[i] > 0) {
+          game.buff[i] = Math.max(0, game.buff[i] - BUFF_DECAY);
+          const keep = [];
+          for (const entry of game.schedule[i]) {
+            entry.rounds -= 1;
+            if (entry.rounds <= 0) game.en[i] += entry.amount;
+            else keep.push(entry);
+          }
+          game.schedule[i] = keep;
+        } else {
+          game.schedule[i] = [];
+        }
       }
       game.picks = [null, null, null, null];
       game.phase = 'pick';
@@ -1017,7 +1027,7 @@ function handleTeams(req, res) {
       round: game.round,
       shield: game.shield,
       buff: game.buff,
-      pending: game.pending,
+      schedule: game.schedule,
       seats: game.picks.map(Boolean),
     }),
   };

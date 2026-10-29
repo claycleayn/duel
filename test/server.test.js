@@ -563,14 +563,20 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'b', []);
   const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
   assert.equal(third.en[0], 40);
-  assert.equal(third.pending[0], 30);
+  assert.deepEqual(third.schedule[0], [{ amount: 30, rounds: 2 }]);
 
-  await waitFor(a, (m) => m.phase === 'pick' && m.round === 4);
+  const fourthPick = await waitFor(a, (m) => m.phase === 'pick' && m.round === 4);
+  assert.equal(fourthPick.en[0], 40);
+  assert.deepEqual(fourthPick.schedule[0], [{ amount: 30, rounds: 1 }]);
   await pickCards(srv.port, 'a', []);
   await pickCards(srv.port, 'b', []);
   const fourth = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 4);
-  assert.equal(fourth.en[0], 90);
-  assert.equal(fourth.pending[0], 0);
+  assert.equal(fourth.en[0], 60);
+  assert.deepEqual(fourth.schedule[0], [{ amount: 30, rounds: 1 }]);
+
+  const fifthPick = await waitFor(a, (m) => m.phase === 'pick' && m.round === 5);
+  assert.equal(fifthPick.en[0], 90);
+  assert.deepEqual(fifthPick.schedule[0], []);
 });
 
 test('cards: cpu submits a legal, affordable subset of its hand', async (t) => {
@@ -726,4 +732,37 @@ test('cards: strength decays by 10 at each round start', async (t) => {
   await pickCards(srv.port, 'b', []);
   const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
   assert.deepEqual(third.buff, [0, 0]);
+});
+
+test('cards: two charges keep separate countdowns', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.75' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+  await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+
+  await pickCards(srv.port, 'a', ['charge']);
+  await pickCards(srv.port, 'b', []);
+  const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.deepEqual(first.schedule[0], [{ amount: 30, rounds: 2 }]);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  await pickCards(srv.port, 'a', ['charge']);
+  await pickCards(srv.port, 'b', []);
+  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+  assert.deepEqual(second.schedule[0], [
+    { amount: 30, rounds: 1 },
+    { amount: 30, rounds: 2 },
+  ]);
+
+  const thirdPick = await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
+  assert.equal(thirdPick.en[0], 60);
+  assert.deepEqual(thirdPick.schedule[0], [{ amount: 30, rounds: 1 }]);
 });
