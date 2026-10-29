@@ -654,3 +654,24 @@ test('cards: escape cannot be played with other cards', async (t) => {
   assert.equal(denied.json.error, 'exclusive card');
   assert.equal((await pickCards(srv.port, 'a', ['escape'])).status, 200);
 });
+
+test('cards: attacks trade instead of canceling', async (t) => {
+  const srv = startServer({ BOT_RANDOM: '0.75' });
+  const clients = [];
+  t.after(() => {
+    for (const client of clients) client.req.destroy();
+    srv.child.kill('SIGTERM');
+  });
+  await waitReady(srv.port);
+
+  const a = await sse(srv.port, 'token=a&seat=0&rules=cards');
+  const b = await sse(srv.port, 'token=b&seat=1');
+  clients.push(a, b);
+  await waitFor(a, (m) => m.ruleset === 'cards' && m.connected[0] && m.connected[1]);
+
+  assert.equal((await pickCards(srv.port, 'a', ['attack'], 1)).status, 200);
+  assert.equal((await pickCards(srv.port, 'b', ['attack'], 0)).status, 200);
+  const reveal = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
+  assert.equal(reveal.reveal.result.canceledPairs.length, 0);
+  assert.deepEqual(reveal.hp, [90, 90]);
+});

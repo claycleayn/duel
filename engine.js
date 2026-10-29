@@ -292,17 +292,20 @@
     }
 
     // 相互攻击逐点抵消。按无序对遍历,人数增加时复杂度是 O(n²),不是组合爆炸。
+    // 卡牌模式关掉抵消:双方伤害同时生效,各减自己的格挡。
     const canceledPairs = [];
-    for (let i = 0; i < playerCount; i += 1) {
-      for (let j = i + 1; j < playerCount; j += 1) {
-        const amount = Math.min(
-          normal[i][j] + piercing[i][j],
-          normal[j][i] + piercing[j][i],
-        );
-        if (amount > 0) {
-          takeDamage(normal, piercing, i, j, amount);
-          takeDamage(normal, piercing, j, i, amount);
-          canceledPairs.push({ i, j, amount });
+    if (state.cancelAttacks !== false) {
+      for (let i = 0; i < playerCount; i += 1) {
+        for (let j = i + 1; j < playerCount; j += 1) {
+          const amount = Math.min(
+            normal[i][j] + piercing[i][j],
+            normal[j][i] + piercing[j][i],
+          );
+          if (amount > 0) {
+            takeDamage(normal, piercing, i, j, amount);
+            takeDamage(normal, piercing, j, i, amount);
+            canceledPairs.push({ i, j, amount });
+          }
         }
       }
     }

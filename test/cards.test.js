@@ -108,16 +108,16 @@ test('cards: 15 block leaves 5 of the 20 damage through', () => {
   assert.equal(result.hpLoss[0], 5);
 });
 
-test('cards: mutual attacks cancel point by point before block', () => {
+test('cards: mutual attacks both land when cancellation is off', () => {
   const result = resolveRound(
     2,
     [pick('attack', 'water'), aimed(0, 'attack')],
     cards,
-    state(),
+    state({ cancelAttacks: false }),
   );
-  assert.equal(result.canceledPairs[0].amount, 10);
-  assert.equal(result.hpLoss[1], 10);
-  assert.equal(result.hpLoss[0], 0);
+  assert.equal(result.canceledPairs.length, 0);
+  assert.equal(result.hpLoss[0], 10);
+  assert.equal(result.hpLoss[1], 20);
 });
 
 test('cards: light costs 20 when nothing is transferred', () => {

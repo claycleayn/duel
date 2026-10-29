@@ -564,6 +564,7 @@ function resolvePicks() {
     hp: game.hp.slice(0, count),
     maxHp: CARD_RULES.hp,
     energy: cards ? game.en.slice(0, count) : undefined,
+    cancelAttacks: !cards,
   });
   const before = {
     hp: game.hp.slice(0, count),
