@@ -19,9 +19,9 @@ test('card catalog: tiers, costs and effects', () => {
   const keys = Object.keys(cards);
   assert.equal(new Set(keys).size, keys.length);
   for (const key of ['charge', 'attack', 'defend']) assert.equal(cards[key].tier, 'basic');
-  assert.equal(cards.charge.cost, 10);
+  assert.equal(cards.charge.cost, 20);
   assert.equal(cards.charge.effects[0].amount, 30);
-  assert.equal(cards.defend.effects[0].amount, 20);
+  assert.equal(cards.defend.effects[0].amount, 15);
   assert.equal(cards.slash.cost, 40);
   assert.equal(cards.slash.effects.filter((effect) => effect.kind === 'damage').length, 2);
   assert.equal(cards.water.cost, 20);
@@ -29,8 +29,12 @@ test('card catalog: tiers, costs and effects', () => {
   assert.equal(cards.heal.tier, 'rare');
   assert.equal(cards.focus.tier, 'epic');
   assert.equal(cards.escape.exclusive, true);
-  assert.equal(cards.focus.cost, 0);
-  assert.equal(cards.focus.effects[0].amount, 20);
+  assert.deepEqual(cards.water.tags, ['精准']);
+  assert.ok(cards.light.tags.includes('破绽'));
+  assert.ok(cards.dark.tags.includes('破绽'));
+  assert.ok(cards.escape.tags.includes('破绽'));
+  assert.equal(cards.focus.cost, 30);
+  assert.equal(cards.focus.effects[0].amount, 40);
   for (const def of Object.values(cards)) {
     assert.equal(typeof def.cost, 'number');
     assert.ok(Array.isArray(def.effects) && def.effects.length > 0);
@@ -45,13 +49,13 @@ test('cards: damage from both cards stacks on the same target', () => {
 
 test('cards: charge pays now and pays out next round', () => {
   const result = resolveRound(2, [pick('charge'), null], cards, state());
-  assert.equal(result.energyDelta[0], -10);
+  assert.equal(result.energyDelta[0], -20);
   assert.deepEqual(result.energyNext[0], [{ amount: 30, delay: 2 }]);
 });
 
-test('cards: focus is free and grants 20 energy immediately', () => {
+test('cards: focus pays 30 and grants 40 energy immediately', () => {
   const result = resolveRound(2, [pick('focus'), null], cards, state());
-  assert.equal(result.energyDelta[0], 20);
+  assert.equal(result.energyDelta[0], 10);
   assert.deepEqual(result.energyNext[0], []);
 });
 
@@ -92,7 +96,7 @@ test('cards: heal returns health and adds 1 block', () => {
   assert.equal(result.heal[0], 10);
 });
 
-test('cards: two 1-damage hits are covered by 2 block', () => {
+test('cards: 15 block leaves 5 of the 20 damage through', () => {
   const result = resolveRound(
     2,
     [pick('defend'), aimed(0, 'slash')],
@@ -100,8 +104,8 @@ test('cards: two 1-damage hits are covered by 2 block', () => {
     state(),
   );
   assert.equal(result.incoming[0], 20);
-  assert.equal(result.blocked[0], 20);
-  assert.equal(result.hpLoss[0], 0);
+  assert.equal(result.blocked[0], 15);
+  assert.equal(result.hpLoss[0], 5);
 });
 
 test('cards: mutual attacks cancel point by point before block', () => {
@@ -116,9 +120,9 @@ test('cards: mutual attacks cancel point by point before block', () => {
   assert.equal(result.hpLoss[0], 0);
 });
 
-test('cards: light costs 10 when nothing is transferred', () => {
+test('cards: light costs 20 when nothing is transferred', () => {
   const result = resolveRound(2, [pick('light'), null], cards, state());
-  assert.equal(result.energyDelta[0], -10);
+  assert.equal(result.energyDelta[0], -20);
   assert.equal(result.transferred.length, 0);
 });
 
@@ -150,9 +154,19 @@ test('cards: an empty pick is a legal pass', () => {
 
 test('cards: execute adds half of the target missing health', () => {
   const full = resolveRound(2, [aimed(1, 'execute'), null], cards, state({ hp: [100, 100], maxHp: 100 }));
-  assert.equal(full.incoming[1], 10);
+  assert.equal(full.incoming[1], 20);
   const hurt = resolveRound(2, [aimed(1, 'execute'), null], cards, state({ hp: [100, 70], maxHp: 100 }));
-  assert.equal(hurt.incoming[1], 25);
+  assert.equal(hurt.incoming[1], 35);
+});
+
+test('cards: a precise attack makes a breach card pay in full', () => {
+  const result = resolveRound(2, [
+    { actions: ['light'], target: null },
+    aimed(0, 'water'),
+  ], cards, state());
+  assert.equal(result.hpLoss[0], 10);
+  assert.equal(result.energyDelta[0], -40);
+  assert.equal(result.transferred.length, 0);
 });
 
 test('cards: overdraw stops the rest of the sequence', () => {
@@ -172,5 +186,5 @@ test('cards: energy gained earlier pays later cards in order', () => {
   }));
   assert.equal(result.overdraw[0], false);
   assert.equal(result.incoming[1], 20);
-  assert.equal(result.energyDelta[0], -20);
+  assert.equal(result.energyDelta[0], -30);
 });

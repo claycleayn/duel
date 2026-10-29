@@ -85,7 +85,7 @@
   function cardDefs() {
     return {
       charge: {
-        key: 'charge', name: '蓄力', tier: 'basic', cost: 10,
+        key: 'charge', name: '蓄力', tier: 'basic', cost: 20,
         desc: '下下回合 能量 30。',
         effects: [{ kind: 'energyNext', amount: 30, delay: 2 }],
       },
@@ -96,8 +96,8 @@
       },
       defend: {
         key: 'defend', name: '防御', tier: 'basic', cost: 10,
-        desc: '格挡 20。',
-        effects: [{ kind: 'defense', amount: 20 }],
+        desc: '格挡 15。',
+        effects: [{ kind: 'defense', amount: 15 }],
       },
       slash: {
         key: 'slash', name: '连斩', tier: 'rare', cost: 40,
@@ -110,7 +110,8 @@
       water: {
         key: 'water', name: '水枪', tier: 'rare', cost: 20,
         desc: '攻击 10(穿透);格挡仍然有效。',
-        effects: [{ kind: 'damage', amount: 10, target: 'chosen', piercing: true }],
+        tags: ['精准'],
+        effects: [{ kind: 'damage', amount: 10, target: 'chosen', piercing: true, precise: true }],
       },
       strength: {
         key: 'strength', name: '力量', tier: 'rare', cost: 20,
@@ -127,29 +128,32 @@
       },
       dark: {
         key: 'dark', name: '黑暗', tier: 'epic', cost: 50,
-        desc: '把受到的普通伤害转移给指定目标;没有转移任何伤害只耗 10 点。',
-        effects: [{ kind: 'transfer', mode: 'target', target: 'chosen', refund: 10 }],
+        desc: '把受到的普通伤害转移给指定目标;没有转移任何伤害只耗 20 点。',
+        tags: ['破绽'],
+        effects: [{ kind: 'transfer', mode: 'target', target: 'chosen', refund: 20, breach: true }],
       },
       light: {
         key: 'light', name: '光明', tier: 'epic', cost: 40,
-        desc: '把受到的普通伤害转移给攻击者;没有转移任何伤害只耗 10 点。',
-        effects: [{ kind: 'transfer', mode: 'source', refund: 10 }],
+        desc: '把受到的普通伤害转移给攻击者;没有转移任何伤害只耗 20 点。',
+        tags: ['破绽'],
+        effects: [{ kind: 'transfer', mode: 'source', refund: 20, breach: true }],
       },
       escape: {
         key: 'escape', name: '逃脱', tier: 'epic', cost: 10,
         desc: '免疫本回合所有普通伤害;穿透伤害仍然命中。',
         exclusive: true,
-        effects: [{ kind: 'immunity' }],
+        tags: ['排斥', '破绽'],
+        effects: [{ kind: 'immunity', breach: true }],
       },
       execute: {
         key: 'execute', name: '处决', tier: 'epic', cost: 50,
-        desc: '伤害 10,额外造成敌人已损生命一半的伤害。',
-        effects: [{ kind: 'damage', amount: 10, target: 'chosen', execute: true }],
+        desc: '伤害 20,额外造成敌人已损生命一半的伤害。',
+        effects: [{ kind: 'damage', amount: 20, target: 'chosen', execute: true }],
       },
       focus: {
-        key: 'focus', name: '聚能', tier: 'epic', cost: 0,
-        desc: '能量 20。',
-        effects: [{ kind: 'energy', amount: 20 }],
+        key: 'focus', name: '聚能', tier: 'epic', cost: 30,
+        desc: '能量 40。',
+        effects: [{ kind: 'energy', amount: 40 }],
       },
     };
   }
@@ -214,6 +218,7 @@
     const buffAdded = Array(playerCount).fill(0);
     const buffUsed = Array(playerCount).fill(0);
     const overdraw = Array(playerCount).fill(false);
+    const preciseHit = Array(playerCount).fill(false);
     const sequential = Array.isArray(state.energy);
 
     for (let from = 0; from < playerCount; from += 1) {
@@ -263,6 +268,7 @@
                 const missing = Math.max(0, max - (state.hp?.[to] ?? max));
                 amount += Math.floor(missing / 2);
               }
+              if (effect.precise) preciseHit[to] = true;
               if (effect.piercing) piercing[from][to] += amount;
               else normal[from][to] += amount;
             }
@@ -274,6 +280,7 @@
               target: effect.mode === 'target' ? resolveChosen(pick, from, playerCount) : null,
               cost: def.cost ?? 0,
               refund: effect.refund ?? 1,
+              breach: !!effect.breach,
             };
           } else if (effect.kind === 'immunity') {
             immunity[from] = true;
@@ -336,7 +343,9 @@
     for (let i = 0; i < playerCount; i += 1) {
       const transfer = transfers[i];
       if (!transfer) continue;
-      const fired = transferred.some((move) => move.from === i);
+      // 精准攻击会让破绽牌照付全额,即使它的效果被无视。
+      const fired = transferred.some((move) => move.from === i)
+        || (transfer.breach && preciseHit[i]);
       if (!fired) energyDelta[i] += transfer.cost - transfer.refund;
     }
 

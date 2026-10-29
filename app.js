@@ -522,6 +522,7 @@
         <li>聚能的能量当场到账,可以给后面的牌用;也可以跳过不出。</li>
         <li>格挡只在本回合有效;力量让下一张攻击牌的每一段伤害 +2。</li>
         <li>词条:格挡 X = 本回合获得 X 点格挡;攻击 X*N = 造成 X 点伤害 N 次;活力 X = 下一张攻击牌每段 +X;恢复 X = 回复 X 点生命;能量 X = 获得 X 点能量;排斥 = 不能与其他牌同时打出。</li>
+        <li>破绽 = 被穿透攻击无视该效果,但牌仍然照付能量;精准 = 攻击无视破绽效果,并让对方照付能量。</li>
         <li>同时结算、互相抵消、受击值减格挡的规则与其它模式一致。</li>
       `;
       return;
@@ -850,10 +851,10 @@
     kind.className = 'card-kind';
     kind.textContent = type === 'attack' ? '攻击' : type === 'power' ? '能力' : '技能';
     foot.append(tier);
-    if (card.exclusive) {
+    for (const label of card.tags ?? []) {
       const tag = document.createElement('span');
       tag.className = 'card-tag';
-      tag.textContent = '排斥';
+      tag.textContent = label;
       foot.appendChild(tag);
     }
     foot.appendChild(kind);

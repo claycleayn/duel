@@ -549,7 +549,7 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'b', []);
   const first = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 1);
   assert.deepEqual(first.buff, [20, 0]);
-  assert.equal(first.en[0], 40);
+  assert.equal(first.en[0], 30);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
   await pickCards(srv.port, 'a', ['attack'], 1);
@@ -562,14 +562,14 @@ test('cards: strength buffs the next attack card, charge pays out next round', a
   await pickCards(srv.port, 'a', ['charge']);
   await pickCards(srv.port, 'b', []);
   const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
-  assert.equal(third.en[0], 80);
+  assert.equal(third.en[0], 40);
   assert.equal(third.pending[0], 30);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 4);
   await pickCards(srv.port, 'a', []);
   await pickCards(srv.port, 'b', []);
   const fourth = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 4);
-  assert.equal(fourth.en[0], 140);
+  assert.equal(fourth.en[0], 90);
   assert.equal(fourth.pending[0], 0);
 });
 
@@ -619,15 +619,20 @@ test('cards: overdraw costs 10 HP and stops the sequence', async (t) => {
   assert.equal(first.reveal.result.overdraw[0], true);
   assert.equal(first.hp[0], 90);
   assert.equal(first.hp[1], 100);
-  assert.equal(first.en[0], 30);
+  assert.equal(first.en[0], 20);
 
   await waitFor(a, (m) => m.phase === 'pick' && m.round === 2);
+  assert.equal((await pickCards(srv.port, 'a', [])).status, 200);
+  assert.equal((await pickCards(srv.port, 'b', [])).status, 200);
+  await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
+
+  await waitFor(a, (m) => m.phase === 'pick' && m.round === 3);
   assert.equal((await pickCards(srv.port, 'a', ['focus', 'slash'], 1)).status, 200);
   assert.equal((await pickCards(srv.port, 'b', [])).status, 200);
-  const second = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 2);
-  assert.equal(second.reveal.result.overdraw[0], false);
-  assert.equal(second.hp[1], 80);
-  assert.equal(second.en[0], 40);
+  const third = await waitFor(a, (m) => m.phase === 'reveal' && m.round === 3);
+  assert.equal(third.reveal.result.overdraw[0], false);
+  assert.equal(third.hp[1], 80);
+  assert.equal(third.en[0], 30);
 });
 
 test('cards: escape cannot be played with other cards', async (t) => {
