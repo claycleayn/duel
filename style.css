@@ -1166,3 +1166,52 @@
     line-height: 1;
     color: currentColor;
   }
+
+  .mode-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .mode-summary {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: .08em;
+    color: var(--muted);
+  }
+  .console-btn {
+    margin-left: auto;
+    appearance: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--ink);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .console-btn:hover { border-color: var(--ink-2); }
+  .host-console {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+  }
+  .host-console[hidden] { display: none; }
+  .console-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .console-kicker { font-family: var(--font-mono); font-size: 9px; letter-spacing: .16em; color: var(--muted); }
+  .console-head h2 { margin: 4px 0 0; font-size: 18px; line-height: 1.1; }
+  .console-close {
+    appearance: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    padding: 5px 10px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .console-close:hover { color: var(--ink); border-color: var(--line-strong); }
+  .console-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 28px; }
+  .console-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .console-hint { font-size: 10.5px; line-height: 1.5; color: var(--muted); }

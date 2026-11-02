@@ -104,6 +104,7 @@
   let audioCtx = null;
   let lastRevealId = -1;
   let lastCfgKey = '';
+  let consoleOpen = false;
   let lastHandKey = '';
   let lastRound = 0;
 
@@ -308,7 +309,26 @@
     });
     const note = $('modeNote');
     if (!view.online) note.textContent = '';
-    else note.textContent = host ? '你是房主(seat 0);电脑可填 2–4;切换会重开' : '只有房主(P1/seat 0)可以切换';
+    else note.textContent = host ? '你是房主(seat 0);切换会重开' : '只有房主(P1/seat 0)可以切换';
+
+    const rulesName = view.ruleset === 'cards' ? '卡牌' : view.ruleset === 'full' ? '完整' : '极简';
+    const teamName = view.teamMode === '2v2' ? '2v2' : '混战';
+    $('modeSummary').textContent = view.online
+      ? `${view.playerCount} 人 · ${teamName} · ${rulesName}`
+      : '正在连接…';
+    const consoleBtn = $('consoleBtn');
+    consoleBtn.hidden = !view.online || !host;
+    if (consoleBtn.hidden) setConsole(false);
+    else consoleBtn.setAttribute('aria-expanded', String(consoleOpen));
+  }
+
+  function setConsole(open) {
+    const next = !!open && view.host && view.online;
+    consoleOpen = next;
+    const panel = $('hostConsole');
+    const btn = $('consoleBtn');
+    if (panel) panel.hidden = !next;
+    if (btn) btn.setAttribute('aria-expanded', String(next));
   }
 
   function renderCards() {
@@ -1250,6 +1270,9 @@
   }
 
   function bindEvents() {
+    $('consoleBtn').addEventListener('click', () => setConsole(!consoleOpen));
+    $('consoleClose').addEventListener('click', () => setConsole(false));
+
     $('actionGrid').addEventListener('click', (event) => {
       const cardBtn = event.target.closest('button.card');
       if (cardBtn) {
@@ -1320,6 +1343,10 @@
     });
 
     document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && consoleOpen) {
+        setConsole(false);
+        return;
+      }
       if (event.target.closest && event.target.closest('input, textarea, select')) return;
       if (event.key === 'Enter' && !$('lockBtn').disabled) {
         lockPick();
